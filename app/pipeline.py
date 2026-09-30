@@ -1,6 +1,7 @@
 """External I/O boundary. Failures expose categories, never response bodies or tokens."""
 
 import asyncio
+import hashlib
 import json
 import time
 from datetime import timedelta
@@ -41,9 +42,7 @@ async def user_access(user_id, epoch):
     cfg = get_settings()
     # Session-scoped advisory lock serializes rotation without an open DB transaction during HTTP.
     with engine.connect() as connection:
-        key = int.from_bytes(
-            __import__("hashlib").sha256(user_id.encode()).digest()[:8], "big", signed=True
-        )
+        key = int.from_bytes(hashlib.sha256(user_id.encode()).digest()[:8], "big", signed=True)
         connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
         connection.commit()
         try:

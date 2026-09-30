@@ -2,7 +2,16 @@
 name = "feishu-summary-server"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4", "alembic>=1.14,<2", "httpx>=0.28,<1", "pydantic-settings>=2.7,<3", "cryptography>=44", "tenacity>=9,<10"]
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "sqlalchemy>=2.0,<3",
+    "psycopg[binary]>=3.2,<4",
+    "alembic>=1.14,<2",
+    "httpx>=0.28,<1",
+    "pydantic-settings>=2.7,<3",
+    "cryptography>=44",
+]
 [dependency-groups]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11", "mypy>=1.15"]
 [tool.ruff]

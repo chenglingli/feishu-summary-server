@@ -257,3 +257,12 @@ def test_oauth_state_consumed_and_identity_login_does_not_grant_messages(clients
     with SessionLocal() as db:
         identity = db.scalar(select(Identity).where(Identity.open_id == "demo-admin"))
         assert db.scalar(select(User).where(User.identity_id == identity.id)) is None
+
+
+def test_unverified_live_mode_cannot_enable_schedule(clients, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "mock_auth_enabled", False)
+    response = clients["demo-a"].post("/api/me/enable")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "POC_REQUIRED"

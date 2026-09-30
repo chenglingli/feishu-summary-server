@@ -250,6 +250,9 @@ def transition(
     if not user:
         raise Problem(409, "AUTHORIZATION_REQUIRED", "请先授权")
     if action in ("enable", "resume"):
+        cfg = get_settings()
+        if not cfg.mock_auth_enabled and not cfg.live_pipeline_enabled:
+            raise Problem(409, "POC_REQUIRED", "真实消息处理尚未通过租户联调，暂不开放定时执行")
         # A disabled user can re-enable after obtaining a new business grant.
         if user.auth_status != "valid":
             raise Problem(409, "AUTHORIZATION_REQUIRED", "请重新授权")
