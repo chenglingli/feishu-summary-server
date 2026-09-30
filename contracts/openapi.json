@@ -1,0 +1,1632 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Feishu Summary API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/auth/login/start": {
+      "get": {
+        "summary": "Login Start",
+        "operationId": "login_start_auth_login_start_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/feishu/start": {
+      "post": {
+        "summary": "Feishu Start",
+        "operationId": "feishu_start_auth_feishu_start_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/{purpose}/callback": {
+      "get": {
+        "summary": "Callback",
+        "operationId": "callback_auth__purpose__callback_get",
+        "parameters": [
+          {
+            "name": "purpose",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Purpose"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "State"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "summary": "Session Info",
+        "operationId": "session_info_api_session_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SessionInfo_"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/session/activity": {
+      "post": {
+        "summary": "Activity",
+        "operationId": "activity_api_session_activity_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "summary": "Logout",
+        "operationId": "logout_api_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/settings": {
+      "get": {
+        "summary": "Get My Settings",
+        "operationId": "get_my_settings_api_me_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SettingsView_"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update Settings",
+        "operationId": "update_settings_api_me_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SettingsView_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/runs": {
+      "post": {
+        "summary": "Manual Run",
+        "operationId": "manual_run_api_me_runs_post",
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RunCreated_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Endpoint",
+        "operationId": "my_runs",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "execution_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "collecting",
+                    "summarizing",
+                    "ready_to_send",
+                    "sending",
+                    "succeeded",
+                    "retry_wait",
+                    "failed",
+                    "cancelled",
+                    "missed",
+                    "needs_reauth",
+                    "delivery_unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Status"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "manual",
+                    "scheduled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "coverage_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "unknown",
+                    "complete",
+                    "partial",
+                    "no_data"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Coverage Status"
+            }
+          },
+          {
+            "name": "delivery_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "not_started",
+                    "sending",
+                    "delivered",
+                    "partial",
+                    "failed",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Delivery Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Page_RunView__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/{action}": {
+      "post": {
+        "summary": "Transition",
+        "operationId": "transition_api_me__action__post",
+        "parameters": [
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "enable",
+                "pause",
+                "resume",
+                "disable"
+              ],
+              "type": "string",
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SettingsView_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "summary": "Users",
+        "operationId": "users_api_admin_users_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "auth_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "valid",
+                    "needs_reauth",
+                    "removed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Status"
+            }
+          },
+          {
+            "name": "enabled_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "not_enabled",
+                    "enabled",
+                    "paused",
+                    "disabled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled Status"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Page_UserView__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs": {
+      "get": {
+        "summary": "Endpoint",
+        "operationId": "admin_runs",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "execution_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "collecting",
+                    "summarizing",
+                    "ready_to_send",
+                    "sending",
+                    "succeeded",
+                    "retry_wait",
+                    "failed",
+                    "cancelled",
+                    "missed",
+                    "needs_reauth",
+                    "delivery_unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Status"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "manual",
+                    "scheduled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "coverage_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "unknown",
+                    "complete",
+                    "partial",
+                    "no_data"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Coverage Status"
+            }
+          },
+          {
+            "name": "delivery_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "not_started",
+                    "sending",
+                    "delivered",
+                    "partial",
+                    "failed",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Delivery Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Page_RunView__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/runs/{run_id}": {
+      "get": {
+        "summary": "Endpoint",
+        "operationId": "my_run_detail",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RunDetail_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs/{run_id}": {
+      "get": {
+        "summary": "Endpoint",
+        "operationId": "admin_run_detail",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RunDetail_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Capabilities": {
+        "properties": {
+          "personal": {
+            "type": "boolean",
+            "title": "Personal"
+          },
+          "admin": {
+            "type": "boolean",
+            "title": "Admin"
+          }
+        },
+        "type": "object",
+        "required": [
+          "personal",
+          "admin"
+        ],
+        "title": "Capabilities"
+      },
+      "Envelope_Page_RunView__": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Page_RunView_"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[Page[RunView]]"
+      },
+      "Envelope_Page_UserView__": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Page_UserView_"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[Page[UserView]]"
+      },
+      "Envelope_RunCreated_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunCreated"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[RunCreated]"
+      },
+      "Envelope_RunDetail_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunDetail"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[RunDetail]"
+      },
+      "Envelope_SessionInfo_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SessionInfo"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[SessionInfo]"
+      },
+      "Envelope_SettingsView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SettingsView"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[SettingsView]"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Page_RunView_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "Page[RunView]"
+      },
+      "Page_UserView_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "Page[UserView]"
+      },
+      "Part": {
+        "properties": {
+          "part": {
+            "type": "integer",
+            "title": "Part"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "part",
+          "status",
+          "message_id"
+        ],
+        "title": "Part"
+      },
+      "Person": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "open_id": {
+            "type": "string",
+            "title": "Open Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "open_id"
+        ],
+        "title": "Person"
+      },
+      "RunCreated": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "RunCreated"
+      },
+      "RunDetail": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "user": {
+            "$ref": "#/components/schemas/Person"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "execution_status": {
+            "type": "string",
+            "title": "Execution Status"
+          },
+          "coverage_status": {
+            "type": "string",
+            "title": "Coverage Status"
+          },
+          "delivery_status": {
+            "type": "string",
+            "title": "Delivery Status"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "safe_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Error"
+          },
+          "retry_count": {
+            "type": "integer",
+            "title": "Retry Count"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "collection_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Collection Counts"
+          },
+          "coverage_issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Coverage Issues"
+          },
+          "delivery_parts": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array",
+            "title": "Delivery Parts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "user",
+          "kind",
+          "scheduled_at",
+          "started_at",
+          "finished_at",
+          "window_start",
+          "window_end",
+          "execution_status",
+          "coverage_status",
+          "delivery_status",
+          "duration_ms",
+          "safe_error",
+          "retry_count",
+          "steps",
+          "collection_counts",
+          "coverage_issues",
+          "delivery_parts"
+        ],
+        "title": "RunDetail"
+      },
+      "RunView": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "user": {
+            "$ref": "#/components/schemas/Person"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "execution_status": {
+            "type": "string",
+            "title": "Execution Status"
+          },
+          "coverage_status": {
+            "type": "string",
+            "title": "Coverage Status"
+          },
+          "delivery_status": {
+            "type": "string",
+            "title": "Delivery Status"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "user",
+          "kind",
+          "scheduled_at",
+          "started_at",
+          "finished_at",
+          "window_start",
+          "window_end",
+          "execution_status",
+          "coverage_status",
+          "delivery_status",
+          "duration_ms"
+        ],
+        "title": "RunView"
+      },
+      "SessionInfo": {
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/Person"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "authorization": {
+            "type": "string",
+            "title": "Authorization"
+          },
+          "csrf_token": {
+            "type": "string",
+            "title": "Csrf Token"
+          },
+          "demo": {
+            "type": "boolean",
+            "title": "Demo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "identity",
+          "capabilities",
+          "authorization",
+          "csrf_token",
+          "demo"
+        ],
+        "title": "SessionInfo"
+      },
+      "SettingsInput": {
+        "properties": {
+          "daily_time": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Daily Time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "daily_time"
+        ],
+        "title": "SettingsInput"
+      },
+      "SettingsView": {
+        "properties": {
+          "authorization": {
+            "type": "string",
+            "title": "Authorization"
+          },
+          "enabled_status": {
+            "type": "string",
+            "title": "Enabled Status"
+          },
+          "daily_time": {
+            "type": "string",
+            "title": "Daily Time"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "authorization",
+          "enabled_status",
+          "daily_time",
+          "timezone",
+          "next_run_at"
+        ],
+        "title": "SettingsView"
+      },
+      "Step": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "at": {
+            "type": "string",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "at"
+        ],
+        "title": "Step"
+      },
+      "UserView": {
+        "properties": {
+          "authorization": {
+            "type": "string",
+            "title": "Authorization"
+          },
+          "enabled_status": {
+            "type": "string",
+            "title": "Enabled Status"
+          },
+          "daily_time": {
+            "type": "string",
+            "title": "Daily Time"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "open_id": {
+            "type": "string",
+            "title": "Open Id"
+          },
+          "auth_status": {
+            "type": "string",
+            "title": "Auth Status"
+          },
+          "first_authorized_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Authorized At"
+          },
+          "last_authorized_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Authorized At"
+          },
+          "auth_checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Auth Checked At"
+          },
+          "latest_run_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Run Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "authorization",
+          "enabled_status",
+          "daily_time",
+          "timezone",
+          "next_run_at",
+          "user_id",
+          "name",
+          "open_id",
+          "auth_status",
+          "first_authorized_at",
+          "last_authorized_at",
+          "auth_checked_at",
+          "latest_run_result"
+        ],
+        "title": "UserView"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
