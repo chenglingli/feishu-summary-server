@@ -53,6 +53,9 @@ class UserView(SettingsView):
 class Step(BaseModel):
     stage: str
     at: str
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    retry_counts: dict[str, int] = {}
 
 
 class Part(BaseModel):

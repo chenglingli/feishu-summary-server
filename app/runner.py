@@ -28,6 +28,7 @@ from app.db import (
 from app.delivery import deliver
 from app.leases import assert_owner, claim, current_lease, heartbeat, owns, release
 from app.maintenance import maintain_credentials, notify_run_reauth
+from app.metrics import close_step
 from app.pipeline import PipelineError, collect, summarize, user_access
 from app.services import ACTIVE, create_run, next_schedule
 
@@ -53,6 +54,7 @@ def stage(run_id, status, **fields):
         if not run or not permitted(db, run):
             raise PipelineError("CANCELLED")
         assert_owner(run)
+        close_step(run)
         run.execution_status = status
         run.steps = [*run.steps, {"stage": status, "at": now().isoformat()}]
         for name, value in fields.items():
@@ -187,6 +189,7 @@ def fail(run_id, code, uncertain=False):
         parts = list(db.scalars(select(DeliveryPart).where(DeliveryPart.run_id == run_id)))
         has_unknown = any(p.status == "sending" for p in parts)
         delivered = any(p.status == "delivered" for p in parts)
+        close_step(run)
         run.safe_error, run.finished_at = code, now()
         run.execution_status = "delivery_unknown" if has_unknown else "failed"
         run.delivery_status = (

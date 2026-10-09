@@ -12,6 +12,7 @@ from sqlalchemy import select, text
 
 from app.config import get_settings
 from app.db import SessionLocal, Token, User, engine, now
+from app.metrics import retry
 from app.security import decrypt_tokens, encrypt_tokens
 
 
@@ -126,6 +127,7 @@ class Feishu:
                 )
                 if response.status_code == 429 or response.status_code >= 500:
                     if attempt < 3:
+                        retry("feishu_read")
                         await asyncio.sleep([5, 20, 60][attempt])
                         continue
                 if response.status_code in (401, 403):
@@ -138,6 +140,7 @@ class Feishu:
             except (httpx.HTTPError, ValueError, KeyError):
                 if attempt == 3:
                     raise PipelineError("FEISHU_READ_FAILED") from None
+                retry("feishu_read")
                 await asyncio.sleep([5, 20, 60][attempt])
         raise PipelineError("FEISHU_READ_FAILED")
 

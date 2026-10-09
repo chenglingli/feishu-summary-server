@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app import payloads
 from app.db import DeliveryPart, Run, SessionLocal, now
 from app.leases import assert_owner
+from app.metrics import retry
 from app.pipeline import PipelineError, bot_token, send_part
 from app.security import digest
 
@@ -46,9 +47,14 @@ async def deliver(run_id, recipient, parts):
                 )
             run.delivery_parts_count = len(parts)
         db.commit()
+    from app.runner import stage
+
+    stage(run_id, "sending")
     access = await bot_token()
     for index, content in enumerate(parts, 1):
         for attempt in range(4):
+            if attempt:
+                retry("delivery")
             with SessionLocal() as db:
                 run = db.scalar(select(Run).where(Run.id == run_id).with_for_update())
                 assert_owner(run)
@@ -71,8 +77,6 @@ async def deliver(run_id, recipient, parts):
                 part.status = "sending"
                 run.execution_status, run.delivery_status = "sending", "sending"
                 key = part.uuid
-                if attempt:
-                    run.retry_count += 1
                 db.commit()
             try:
                 message_id = await send_part(

@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.metrics import retry
 from app.pipeline import Finding, PipelineError, Summary
 
 
@@ -102,6 +103,7 @@ async def request_summary(client, data, sources, primary, merge=False):
         except (httpx.HTTPError, ValueError, KeyError, IndexError):
             if attempt:
                 raise PipelineError("MODEL_OUTPUT_INVALID") from None
+            retry("model_repair")
             payload["messages"].append(
                 {
                     "role": "user",

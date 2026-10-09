@@ -36,3 +36,34 @@ def test_health_requires_admin_and_detects_stale_worker(clients):
         worker.heartbeat_at = now() - timedelta(seconds=100)
         db.commit()
     assert admin.get("/api/admin/health").json()["data"]["status"] == "degraded"
+
+
+def test_stage_metrics_are_isolated_and_count_retries(clients):
+    from uuid import uuid4
+
+    from app.db import Run
+    from app.leases import claim, current_lease
+    from app.metrics import retry
+    from app.runner import fail, stage
+
+    run_id = (
+        clients["demo-a"]
+        .post("/api/me/runs", headers={"Idempotency-Key": str(uuid4())})
+        .json()["data"]["run_id"]
+    )
+    lease = claim(run_id)
+    context = current_lease.set(lease)
+    try:
+        stage(run_id, "collecting")
+        retry("feishu_read")
+        stage(run_id, "summarizing")
+        retry("model_repair")
+        fail(run_id, "MODEL_OUTPUT_INVALID")
+    finally:
+        current_lease.reset(context)
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.retry_count == 2
+        assert run.steps[0]["retry_counts"] == {"feishu_read": 1}
+        assert run.steps[1]["retry_counts"] == {"model_repair": 1}
+        assert all(step["duration_ms"] >= 0 and step["finished_at"] for step in run.steps)
