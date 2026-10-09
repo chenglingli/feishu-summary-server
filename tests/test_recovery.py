@@ -157,3 +157,30 @@ def test_collection_progress_throttles_and_rejects_expired_owner(clients, monkey
             assert db.get(Run, run_id).collection_counts["body_read"] == 3
     finally:
         current_lease.reset(context)
+
+
+async def test_model_failure_retains_completed_collection_counts(clients, monkeypatch):
+    import app.runner as runner
+    from app.config import get_settings
+
+    run_id = enqueue(clients)
+    monkeypatch.setattr(get_settings(), "mock_auth_enabled", False)
+    monkeypatch.setattr(get_settings(), "live_pipeline_enabled", True)
+
+    async def access(*args):
+        return "fake-token"
+
+    async def collect(*args):
+        return [{"text": "fake"}], {"unique": 8, "parsed": 7, "body_read": 8}, []
+
+    async def summarize(*args):
+        raise PipelineError("MODEL_OUTPUT_INVALID")
+
+    monkeypatch.setattr(runner, "user_access", access)
+    monkeypatch.setattr(runner, "collect", collect)
+    monkeypatch.setattr(runner, "summarize", summarize)
+    await runner.execute(run_id)
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.execution_status == "failed"
+        assert run.collection_counts == {"unique": 8, "parsed": 7, "body_read": 8}
