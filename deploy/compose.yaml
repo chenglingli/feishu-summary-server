@@ -50,6 +50,11 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
     tmpfs: [/tmp:size=64m,mode=1777, /run/summary-data:size=512m,uid=10001,gid=10001,mode=0700]
+    healthcheck:
+      test: [CMD, python, -m, app.health]
+      interval: 60s
+      timeout: 10s
+      retries: 2
     deploy:
       replicas: 1
   frontend:
