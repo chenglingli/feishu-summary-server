@@ -23,3 +23,9 @@
 数据库准备完成后，在仓库内运行 `.venv/bin/alembic upgrade head`、`.venv/bin/alembic check`。本机 API 启动命令为 `.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log`，另一个终端运行 `.venv/bin/python -m app.runner`。仅保留一个 runner。
 
 飞书后台还需自行完成应用权限审批、发布、可用范围和 OAuth 回调配置。填写本机文件不会自动修改飞书后台配置。
+
+## Kimi K3 接入
+
+`MODEL_ID=kimi-k3` 时，使用模型支持的 `reasoning_effort=low`，省略不允许自定义的 temperature 参数。参数依据：https://platform.kimi.com/docs/api/models-overview 。2026-10-09 已用虚构消息完成一次真实结构化总结与来源验证；这不等同于真实聊天质量或完整采集验收。
+
+本机真实配置已启用飞书登录，应用凭证和模型列表检查通过；Demo 入口返回404。真实任务开关仍关闭，需用户亲自完成网页登录及独立的消息授权后再继续联调。尚未读取真实聊天或向用户发送总结。

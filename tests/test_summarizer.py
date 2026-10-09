@@ -105,3 +105,31 @@ def test_model_budget_covers_repair_and_merge_requests():
     with pytest.raises(PipelineError) as error:
         budget.reserve(payload)
     assert error.value.code == "MODEL_TOKEN_BUDGET_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_kimi_k3_uses_supported_parameters(monkeypatch):
+    import httpx
+
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "model_id", "kimi-k3")
+    monkeypatch.setattr(get_settings(), "model_base_url", "https://example.test/v1")
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake-key")
+    calls = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        assert "temperature" not in payload
+        assert payload["reasoning_effort"] == "low"
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": '{"topics":[],"decisions":[],"actions":[]}'}}]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await request_summary(client, [], {}, set())
+    assert len(calls) == 1

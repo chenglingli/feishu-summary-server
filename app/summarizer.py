@@ -99,6 +99,10 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
             {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
         ],
     }
+    if cfg.model_id == "kimi-k3":
+        # K3 fixes sampling parameters; use its supported effort setting for bounded summaries.
+        payload.pop("temperature")
+        payload["reasoning_effort"] = "low"
     budget = budget or ModelBudget(cfg.model_token_budget)
     for attempt in range(2):
         budget.reserve(payload)
