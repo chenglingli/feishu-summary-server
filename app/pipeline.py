@@ -104,6 +104,7 @@ class Feishu:
     def __init__(self, client, access):
         self.client = client
         self.headers = {"Authorization": f"Bearer {access}"}
+        self.search_metadata: dict[str, dict] = {}
 
     async def request(self, method, path, **kwargs):
         for attempt in range(4):
@@ -118,6 +119,8 @@ class Feishu:
                     if attempt < 3:
                         await asyncio.sleep([5, 20, 60][attempt])
                         continue
+                if response.status_code in (401, 403):
+                    raise PipelineError("AUTHORIZATION_REQUIRED")
                 response.raise_for_status()
                 data = response.json()
                 if data.get("code") != 0:
@@ -150,6 +153,7 @@ class Feishu:
                 if not message_id:
                     raise PipelineError("SEARCH_SCHEMA_CHANGED")
                 ids.add(message_id)
+                self.search_metadata[message_id] = item.get("meta_data", {})
             if data.get("notice"):
                 issues.append("SEARCH_NOTICE")
             if not data.get("has_more"):
@@ -210,67 +214,9 @@ def parse_message(item, open_id, reasons, start, end):
 
 
 async def collect(run, identity, access):
-    messages: list[dict] = []
-    reasons: dict[str, set[str]] = {}
-    issues: list[str] = []
-    counts: dict[str, int] = {}
-    succeeded = 0
-    async with httpx.AsyncClient(timeout=30) as client:
-        feishu = Feishu(client, access)
-        routes: dict[str, dict[str, Any]] = {
-            "p2p": {"chat_type": "p2p"},
-            "at_me": {"chat_type": "group", "is_at_me": True},
-            "own": {"from_ids": [identity.open_id]},
-        }
-        for route, filters in routes.items():
-            try:
-                ids, notices = await feishu.search(
-                    {
-                        **filters,
-                        "from_types": ["user"],
-                        "time_range": {
-                            "start_time": run.window_start.replace(microsecond=0).isoformat(),
-                            "end_time": (
-                                run.window_end.replace(microsecond=0) + timedelta(seconds=1)
-                            ).isoformat(),
-                        },
-                    }
-                )
-                issues.extend(notices)
-                succeeded += 1
-                counts[route] = len(ids)
-                for message_id in ids:
-                    reasons.setdefault(message_id, set()).add(route)
-            except PipelineError as exc:
-                issues.append(f"{route}:{exc.code}")
-        if not succeeded:
-            raise PipelineError("ALL_SEARCH_ROUTES_FAILED")
-        for message_id, matched in reasons.items():
-            try:
-                parsed = parse_message(
-                    await feishu.body(message_id),
-                    identity.open_id,
-                    matched,
-                    run.window_start,
-                    run.window_end,
-                )
-                if parsed:
-                    messages.append(parsed)
-            except (PipelineError, ValueError, KeyError, TypeError):
-                issues.append("MESSAGE_BODY_UNAVAILABLE")
-    counts.update(
-        unique=len(reasons),
-        parsed=sum(bool(x.get("text")) for x in messages),
-        unsupported=sum(bool(x.get("unsupported")) for x in messages),
-    )
-    if reasons and not messages and issues:
-        raise PipelineError("NO_READABLE_MESSAGES")
-    # Conservative coverage until history/thread expansion and search-index reconciliation pass PoC.
-    if messages:
-        issues.append("CONTEXT_AND_INDEX_COVERAGE_UNVERIFIED")
-    if counts["unsupported"]:
-        issues.append("UNSUPPORTED_MESSAGE_TYPES")
-    return messages, counts, sorted(set(issues))
+    from app.collector import collect_messages
+
+    return await collect_messages(run, identity, access)
 
 
 class Finding(BaseModel):
