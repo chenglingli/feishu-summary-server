@@ -135,7 +135,15 @@ async def execute(run_id, lease=None):
                         raise PipelineError("POC_REQUIRED")
                     access = await user_access(user.id, run.auth_epoch)
                     messages, counts, issues = await collect(run, identity, access)
-                    stage(run_id, "summarizing")
+                    stage(
+                        run_id,
+                        "summarizing",
+                        collection_counts=counts,
+                        coverage_issues=issues,
+                        coverage_status="partial"
+                        if issues
+                        else ("complete" if messages else "no_data"),
+                    )
                     report = await summarize(messages)
                 coverage = "partial" if issues else ("complete" if messages else "no_data")
                 stage(

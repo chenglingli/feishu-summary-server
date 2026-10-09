@@ -115,6 +115,7 @@ class Feishu:
         self.client = client
         self.headers = {"Authorization": f"Bearer {access}"}
         self.search_metadata: dict[str, dict] = {}
+        self.on_search_page = None
 
     async def request(self, method, path, **kwargs):
         for attempt in range(4):
@@ -166,6 +167,8 @@ class Feishu:
                     raise PipelineError("SEARCH_SCHEMA_CHANGED")
                 ids.add(message_id)
                 self.search_metadata[message_id] = item.get("meta_data", {})
+            if self.on_search_page:
+                self.on_search_page(ids)
             if data.get("notice"):
                 issues.append("SEARCH_NOTICE")
             if not data.get("has_more"):

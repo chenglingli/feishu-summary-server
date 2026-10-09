@@ -37,3 +37,29 @@ def retry(kind):
             steps[-1]["retry_counts"] = counts
             run.steps = steps
         db.commit()
+
+
+class CollectionProgress:
+    """Throttle durable counters; only the current leased task may publish progress."""
+
+    def __init__(self, counts):
+        self.counts = counts
+        self.last = 0.0
+
+    def update(self, *, force=False, **values):
+        import time
+
+        from app.leases import assert_owner, current_lease
+
+        self.counts.update(values)
+        lease = current_lease.get()
+        tick = time.monotonic()
+        if not lease or (not force and tick - self.last < 5):
+            return
+        with SessionLocal() as db:
+            run = db.scalar(select(Run).where(Run.id == lease[0]).with_for_update())
+            assert_owner(run)
+            assert run is not None
+            run.collection_counts = dict(self.counts)
+            db.commit()
+        self.last = tick

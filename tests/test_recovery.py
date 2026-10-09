@@ -130,3 +130,30 @@ async def test_ambiguous_send_reuses_exact_uuid_and_payload(clients, monkeypatch
     finally:
         current_lease.reset(context)
         release(lease)
+
+
+def test_collection_progress_throttles_and_rejects_expired_owner(clients, monkeypatch):
+    import time
+
+    from app.metrics import CollectionProgress
+
+    run_id = enqueue(clients)
+    lease = claim(run_id)
+    context = current_lease.set(lease)
+    progress = CollectionProgress({})
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    try:
+        progress.update(force=True, unique=10, body_read=2)
+        progress.update(body_read=3)
+        with SessionLocal() as db:
+            assert db.get(Run, run_id).collection_counts == {"unique": 10, "body_read": 2}
+        progress.update(force=True)
+        with SessionLocal() as db:
+            assert db.get(Run, run_id).collection_counts["body_read"] == 3
+        expire(run_id)
+        with pytest.raises(PipelineError):
+            progress.update(force=True, body_read=4)
+        with SessionLocal() as db:
+            assert db.get(Run, run_id).collection_counts["body_read"] == 3
+    finally:
+        current_lease.reset(context)
