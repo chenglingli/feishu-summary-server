@@ -258,3 +258,48 @@ async def test_timeout_retry_keeps_prompt_and_classifies_failure(monkeypatch):
     assert error.value.code == "MODEL_TIMEOUT"
     assert len(calls) == 2 and calls[0] == calls[1]
     assert retries == ["model_timeout"]
+
+
+def test_report_groups_categories_without_exposing_evidence():
+    from app.summarizer import render_summary
+
+    result = Summary(
+        topics=[
+            Finding(summary="人员安排", sources=["S1"], category="组织类"),
+            Finding(summary="接口方案", sources=["S2"], category="技术类"),
+        ],
+        decisions=[],
+        actions=[
+            Finding(
+                summary="验收项目", sources=["S3"], category="项目类", owner="张三", deadline="周五"
+            )
+        ],
+    )
+    text = render_summary([result])
+    assert text.index("【组织类】") < text.index("【项目类】") < text.index("【技术类】")
+    assert "待办：验收项目；负责人：张三；截止：周五" in text
+    assert "来源定位" not in text and "S1" not in text and "S3" not in text
+    assert "日常协作类" not in text and "其他" not in text
+    # Hiding display references must not discard evidence used by validation.
+    assert result.topics[0].sources == ["S1"]
+
+
+def test_report_statistics_use_window_and_collector_counts():
+    from datetime import datetime, timedelta, timezone
+
+    from app.cards import report_content
+
+    end = datetime(2026, 1, 2, 11, tzinfo=timezone.utc)
+    text = report_content(
+        end - timedelta(hours=24),
+        end,
+        {"unique": 120, "parsed": 97, "context": 14, "unsupported": 11},
+        ["UNSUPPORTED_MESSAGE_TYPES"],
+        "【组织类】\n• 要点：虚构测试",
+    )
+    assert "2026-01-01 19:00 至 2026-01-02 19:00（北京时间）" in text
+    assert "过去 24 小时内 97 条" in text and "14 条上下文" in text
+    assert "11 条非文本" in text and "覆盖提示" in text
+    assert "120 条" not in text and "partial" not in text
+    empty = report_content(end - timedelta(hours=12), end, {"parsed": 0}, [], "没有可总结的消息。")
+    assert "过去 12 小时内 0 条" in empty and "覆盖提示" not in empty

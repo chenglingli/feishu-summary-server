@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import delete, select, text
 
 from app import payloads
-from app.cards import report_parts
+from app.cards import report_content, report_parts
 from app.config import get_settings
 from app.db import (
     Audit,
@@ -156,11 +156,7 @@ async def execute(run_id, lease=None):
                 if get_settings().mock_auth_enabled:
                     stage(run_id, "succeeded", finished_at=now(), safe_error="DEMO_NOT_SENT")
                     return
-                content = (
-                    f"个人会话总结\n统计截止：{run.window_end.isoformat()}\n覆盖：{coverage}\n"
-                    + ("部分信息未能读取。\n" if issues else "")
-                    + report
-                )
+                content = report_content(run.window_start, run.window_end, counts, issues, report)
                 parts = report_parts(content)
             await deliver(run_id, identity.open_id, parts)
             stage(run_id, "succeeded", delivery_status="delivered", finished_at=now())

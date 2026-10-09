@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 from datetime import timedelta
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict
@@ -238,6 +239,7 @@ class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     summary: str
     sources: list[str]
+    category: Literal["组织类", "项目类", "技术类", "日常协作类", "其他"] = "其他"
     owner: str | None = None
     deadline: str | None = None
 
