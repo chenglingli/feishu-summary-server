@@ -284,3 +284,54 @@ def test_public_demo_options_and_missing_oauth_config(clients, monkeypatch):
     assert response.status_code == 409 and "location" not in response.headers
     monkeypatch.setattr(get_settings(), "mock_auth_enabled", False)
     assert client.get("/api/public/login-options").json()["data"]["accounts"] == []
+
+
+def test_denied_oauth_diagnostics_preserve_access_control(clients, monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    import httpx
+
+    import app.oauth as oauth
+    from app.config import get_settings
+
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "mock_auth_enabled", False)
+    monkeypatch.setattr(cfg, "feishu_app_id", "fake-app")
+    monkeypatch.setattr(cfg, "feishu_app_secret_file", "fake-path")
+    monkeypatch.setattr(Settings, "secret", lambda self, _: "fake-secret")
+    original = httpx.AsyncClient
+    info = {"tenant_key": "local-demo", "open_id": "outside-user"}
+
+    def respond(request):
+        if "/token" in request.url.path:
+            return httpx.Response(200, json={"access_token": "fake-access"})
+        return httpx.Response(200, json={"code": 0, "data": info})
+
+    monkeypatch.setattr(
+        oauth.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    client = clients["demo-admin"]
+    for environment, tenant, reason in [
+        ("development", "local-demo", "USER_NOT_ALLOWED"),
+        ("development", "other-tenant", "TENANT_MISMATCH"),
+        ("production", "other-tenant", None),
+    ]:
+        monkeypatch.setattr(cfg, "app_env", environment)
+        info["tenant_key"] = tenant
+        response = client.get("/auth/login/start", follow_redirects=False)
+        state = parse_qs(urlparse(response.headers["location"]).query)["state"][0]
+        result = client.get(
+            f"/auth/login/callback?state={state}&code=fake-code", follow_redirects=False
+        )
+        assert result.status_code == 403
+        details = result.json()["error"]["details"]
+        if reason:
+            assert details["reason"] == reason
+            assert details["login_identity"] == info
+        else:
+            assert details is None
+        assert "fake-access" not in result.text and "fake-secret" not in result.text
+    with SessionLocal() as db:
+        assert db.scalar(select(Identity).where(Identity.open_id == "outside-user")) is None

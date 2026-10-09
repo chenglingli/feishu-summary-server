@@ -155,7 +155,19 @@ async def callback(
         user_info.get("tenant_key") != cfg.allowed_tenant_key
         or user_info.get("open_id") not in cfg.pilots | cfg.admins
     ):
-        raise Problem(403, "ACCESS_DENIED", "此飞书账号不在应用可用范围")
+        tenant_matches = user_info.get("tenant_key") == cfg.allowed_tenant_key
+        details = None
+        if cfg.app_env == "development":
+            # Show only this authenticated caller's identity for local setup, never tokens or allowlists.
+            details = {
+                "reason": "USER_NOT_ALLOWED" if tenant_matches else "TENANT_MISMATCH",
+                "login_identity": {
+                    "tenant_key": user_info.get("tenant_key"),
+                    "open_id": user_info.get("open_id"),
+                },
+                "app_id": cfg.feishu_app_id,
+            }
+        raise Problem(403, "ACCESS_DENIED", "当前登录账号未通过公司或用户白名单校验", details)
     identity = db.scalar(
         select(Identity).where(
             Identity.tenant_key == cfg.allowed_tenant_key, Identity.open_id == user_info["open_id"]
