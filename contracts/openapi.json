@@ -896,6 +896,24 @@
           }
         }
       }
+    },
+    "/api/public/login-options": {
+      "get": {
+        "summary": "Login Options",
+        "operationId": "login_options_api_public_login_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_LoginOptions_"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -917,6 +935,41 @@
           "admin"
         ],
         "title": "Capabilities"
+      },
+      "DemoAccount": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "login_url": {
+            "type": "string",
+            "title": "Login Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "login_url"
+        ],
+        "title": "DemoAccount"
+      },
+      "Envelope_LoginOptions_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LoginOptions"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[LoginOptions]"
       },
       "Envelope_Page_RunView__": {
         "properties": {
@@ -1032,6 +1085,32 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LoginOptions": {
+        "properties": {
+          "demo": {
+            "type": "boolean",
+            "title": "Demo"
+          },
+          "feishu_enabled": {
+            "type": "boolean",
+            "title": "Feishu Enabled"
+          },
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/DemoAccount"
+            },
+            "type": "array",
+            "title": "Accounts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "demo",
+          "feishu_enabled",
+          "accounts"
+        ],
+        "title": "LoginOptions"
       },
       "Page_RunView_": {
         "properties": {

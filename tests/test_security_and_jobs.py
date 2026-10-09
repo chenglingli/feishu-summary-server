@@ -227,6 +227,11 @@ def test_oauth_state_consumed_and_identity_login_does_not_grant_messages(clients
     import app.oauth as oauth
 
     monkeypatch.setattr(Settings, "secret", lambda self, _: "fake-secret")
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "mock_auth_enabled", False)
+    monkeypatch.setattr(get_settings(), "feishu_app_id", "fake-app")
+    monkeypatch.setattr(get_settings(), "feishu_app_secret_file", "fake-path")
     original_client = httpx.AsyncClient
 
     def response(request):
@@ -266,3 +271,16 @@ def test_unverified_live_mode_cannot_enable_schedule(clients, monkeypatch):
     response = clients["demo-a"].post("/api/me/enable")
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "POC_REQUIRED"
+
+
+def test_public_demo_options_and_missing_oauth_config(clients, monkeypatch):
+    from app.config import get_settings
+
+    client = TestClient(app, base_url="http://localhost:5173")
+    options = client.get("/api/public/login-options").json()["data"]
+    assert options["demo"] and len(options["accounts"]) == 3
+    assert not options["feishu_enabled"]
+    response = client.get("/auth/login/start", follow_redirects=False)
+    assert response.status_code == 409 and "location" not in response.headers
+    monkeypatch.setattr(get_settings(), "mock_auth_enabled", False)
+    assert client.get("/api/public/login-options").json()["data"]["accounts"] == []

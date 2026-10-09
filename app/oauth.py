@@ -47,6 +47,11 @@ def new_session(db, identity, response, old_hash=None):
 
 def start(request, db, purpose, identity=None):
     cfg = get_settings()
+    if cfg.mock_auth_enabled or not cfg.feishu_app_id or not cfg.feishu_app_secret_file:
+        raise Problem(
+            409, "LOGIN_NOT_CONFIGURED", "当前未启用真实飞书登录，请从首页选择演示账号或联系管理员"
+        )
+
     state, binding = random_token(), random_token()
     old_hash = digest(request.cookies.get(cfg.cookie_name, ""))
     db.add(

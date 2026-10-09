@@ -94,3 +94,14 @@ class Page(BaseModel, Generic[T]):
 
 class RunCreated(BaseModel):
     run_id: str
+
+
+class DemoAccount(BaseModel):
+    label: str
+    login_url: str
+
+
+class LoginOptions(BaseModel):
+    demo: bool
+    feishu_enabled: bool
+    accounts: list[DemoAccount]

@@ -17,6 +17,7 @@ from app.db import Audit, Identity, ManualRequest, Run, Token, User, get_db, now
 from app.oauth import router
 from app.schemas import (
     Envelope,
+    LoginOptions,
     Page,
     RunCreated,
     RunDetail,
@@ -504,3 +505,28 @@ app.get("/api/me/runs/{run_id}", operation_id="my_run_detail", response_model=En
 app.get(
     "/api/admin/runs/{run_id}", operation_id="admin_run_detail", response_model=Envelope[RunDetail]
 )(detail_endpoint(True))
+
+
+@app.get("/api/public/login-options", response_model=Envelope[LoginOptions])
+def login_options(request: Request):
+    cfg = get_settings()
+    # Only predefined fake identities are advertised; never expose production allowlists.
+    accounts = [
+        {"label": label, "login_url": f"/auth/dev/login/{identifier}"}
+        for identifier, label in (
+            ("demo-a", "员工 A 演示"),
+            ("demo-b", "员工 B 演示"),
+            ("demo-admin", "管理员演示"),
+        )
+        if cfg.mock_auth_enabled and identifier in cfg.pilots | cfg.admins
+    ]
+    return ok(
+        request,
+        {
+            "demo": cfg.mock_auth_enabled,
+            "feishu_enabled": bool(
+                not cfg.mock_auth_enabled and cfg.feishu_app_id and cfg.feishu_app_secret_file
+            ),
+            "accounts": accounts,
+        },
+    )
