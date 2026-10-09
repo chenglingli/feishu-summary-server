@@ -1,5 +1,6 @@
 """Structured extraction followed by bounded merge; every finding remains traceable."""
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -20,7 +21,7 @@ class ModelBudget:
         # Provider-specific tokenizer/billing still needs tenant validation.
         amount = (
             len(json.dumps(payload["messages"], ensure_ascii=False).encode())
-            + payload["max_tokens"]
+            + payload.get("max_completion_tokens", payload.get("max_tokens", 6000))
             + 1024
         )
         if self.used + amount > self.limit:
@@ -42,6 +43,12 @@ def batches(values, limit=20000):
         yield batch
 
 
+class ModelResultError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
 def validate_findings(result, sources, primary):
     for category in ("topics", "decisions", "actions"):
         for finding in getattr(result, category):
@@ -50,7 +57,7 @@ def validate_findings(result, sources, primary):
                 or not set(finding.sources) <= sources.keys()
                 or not set(finding.sources) & primary
             ):
-                raise ValueError("Invalid or context-only evidence")
+                raise ModelResultError("MODEL_SOURCE_INVALID")
             evidence = "\n".join(sources[key]["text"] for key in finding.sources)
             # Only explicit source wording survives. Ambiguous normalized dates become unset.
             if finding.owner and finding.owner not in evidence:
@@ -103,9 +110,13 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
         # K3 fixes sampling parameters; use its supported effort setting for bounded summaries.
         payload.pop("temperature")
         payload["reasoning_effort"] = "low"
+        payload["max_completion_tokens"] = payload.pop("max_tokens")
+        payload["response_format"] = {"type": "json_object"}
     budget = budget or ModelBudget(cfg.model_token_budget)
     for attempt in range(2):
         budget.reserve(payload)
+        failure = "MODEL_OUTPUT_INVALID"
+        repairable = True
         try:
             response = await client.post(
                 cfg.model_base_url.rstrip("/") + "/chat/completions",
@@ -113,26 +124,72 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
                 json=payload,
             )
             response.raise_for_status()
-            result = Summary.model_validate_json(
-                response.json()["choices"][0]["message"]["content"]
-            )
+            envelope = response.json()
+            choice = envelope["choices"][0]
+            if choice.get("finish_reason") == "length":
+                raise ModelResultError("MODEL_OUTPUT_TRUNCATED")
+            if choice.get("finish_reason") == "content_filter":
+                raise ModelResultError("MODEL_CONTENT_FILTERED")
+            content = choice["message"]["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise ModelResultError("MODEL_EMPTY_OUTPUT")
+            result = Summary.model_validate_json(content)
             validate_findings(result, sources, primary)
             if merge:
                 for category, references in required.items():
                     actual = {s for finding in getattr(result, category) for s in finding.sources}
                     if not references <= actual:
-                        raise ValueError("Merge omitted evidence")
+                        raise ModelResultError("MODEL_MERGE_INCOMPLETE")
             return result
-        except (httpx.HTTPError, ValueError, KeyError, IndexError):
-            if attempt:
-                raise PipelineError("MODEL_OUTPUT_INVALID") from None
-            retry("model_repair")
-            payload["messages"].append(
-                {
-                    "role": "user",
-                    "content": "上次输出未满足结构或来源要求，请重新生成。合并时必须保留每类全部来源，不能省略。",
-                }
+        except httpx.TimeoutException:
+            failure, repairable = "MODEL_TIMEOUT", False
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            failure = (
+                "MODEL_AUTH_REJECTED"
+                if status in (401, 403)
+                else "MODEL_RATE_LIMITED"
+                if status == 429
+                else "MODEL_SERVICE_UNAVAILABLE"
+                if status >= 500
+                else "MODEL_REQUEST_REJECTED"
             )
+            # Repeating invalid requests or credentials cannot repair them.
+            if status < 500 and status != 429:
+                raise PipelineError(failure) from None
+            repairable = False
+        except httpx.HTTPError:
+            failure, repairable = "MODEL_NETWORK_ERROR", False
+        except ModelResultError as error:
+            failure = error.code
+            if failure == "MODEL_CONTENT_FILTERED":
+                raise PipelineError(failure) from None
+        except (KeyError, IndexError, TypeError):
+            failure = "MODEL_RESPONSE_SCHEMA_CHANGED"
+        except ValueError:
+            failure = "MODEL_JSON_SCHEMA_INVALID"
+        if attempt:
+            raise PipelineError(failure) from None
+        # Persist only an enumerated failure category, never provider text or response content.
+        retry(failure.lower())
+        if not repairable:
+            await asyncio.sleep(1)
+            continue
+        if failure == "MODEL_OUTPUT_TRUNCATED":
+            limit_key = (
+                "max_completion_tokens" if "max_completion_tokens" in payload else "max_tokens"
+            )
+            payload[limit_key] *= 2
+        payload["messages"].append(
+            {
+                "role": "user",
+                "content": (
+                    "上次输出被截断，请简洁输出完整 JSON，保留所有来源。"
+                    if failure == "MODEL_OUTPUT_TRUNCATED"
+                    else "上次输出未满足结构或来源要求，请重新生成。合并时必须保留每类全部来源，不能省略。"
+                ),
+            }
+        )
     raise PipelineError("MODEL_OUTPUT_INVALID")
 
 

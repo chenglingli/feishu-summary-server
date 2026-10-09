@@ -42,3 +42,12 @@
 - [获取消息](https://open.feishu.cn/document/server-docs/im-v1/message/get.md)
 - [历史消息](https://open.feishu.cn/document/server-docs/im-v1/message/list.md)
 - [运维命令与验收边界](OPERATIONS.md)
+
+## 2026-10-09 模型失败排查与修复
+
+- 历史失败仅记录 `MODEL_OUTPUT_INVALID`，没有保存模型正文，无法精确还原历史两次响应。经用户单次授权，在内存中重放原统计窗口，不发送报告、不保存消息或模型正文。
+- 原实现真实重放复现两次 JSON 解析失败和一次读取超时，重试后完成。HTTP 200 / finish_reason=stop 不代表内容符合应用 JSON schema。
+- Kimi K3 请求启用 JSON Mode，使用 max_completion_tokens；截断时在任务预算内提高一次输出上限。保留结构、来源和合并完整性校验。
+- 网络、鉴权、限流、截断、JSON schema、来源和合并错误分别记录静态安全错误码；首轮失败原因记入 retry_counts。鉴权/请求参数错误不盲目重试，网络重试不追加格式修复提示。
+- 修复后的同批真实消息完成抽取、合并及最终校验；两批抽取均一次通过，合并仍发生一次重试。此次诊断未调用消息发送接口，历史失败任务保持原记录，不等同于真实送达验收。
+- 57 项后端测试通过（独立 summary_test、虚构租户），Ruff / mypy / Alembic 一致性检查通过。生产时延和两用户送达仍需验收。

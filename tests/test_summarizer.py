@@ -133,3 +133,128 @@ async def test_kimi_k3_uses_supported_parameters(monkeypatch):
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         await request_summary(client, [], {}, set())
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "choice", "expected", "attempts"),
+    [
+        (401, None, "MODEL_AUTH_REJECTED", 1),
+        (400, None, "MODEL_REQUEST_REJECTED", 1),
+        (429, None, "MODEL_RATE_LIMITED", 2),
+        (503, None, "MODEL_SERVICE_UNAVAILABLE", 2),
+        (
+            200,
+            {"finish_reason": "length", "message": {"content": "{"}},
+            "MODEL_OUTPUT_TRUNCATED",
+            2,
+        ),
+        (200, {"message": {"content": ""}}, "MODEL_EMPTY_OUTPUT", 2),
+        (200, {"message": {"content": "{"}}, "MODEL_JSON_SCHEMA_INVALID", 2),
+        (
+            200,
+            {
+                "message": {
+                    "content": '{"topics":[{"summary":"test","sources":["unknown"]}],"decisions":[],"actions":[]}'
+                }
+            },
+            "MODEL_SOURCE_INVALID",
+            2,
+        ),
+    ],
+)
+async def test_model_failures_are_classified(monkeypatch, status, choice, expected, attempts):
+    import httpx
+
+    import app.summarizer as summarizer
+    from app.config import get_settings
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake-key")
+    monkeypatch.setattr(get_settings(), "model_base_url", "https://example.test/v1")
+    calls, retries = [], []
+    monkeypatch.setattr(summarizer, "retry", retries.append)
+
+    async def no_wait(seconds):
+        pass
+
+    monkeypatch.setattr(summarizer.asyncio, "sleep", no_wait)
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(status, json={"choices": [choice]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(PipelineError) as error:
+            await request_summary(client, [], {}, set())
+    assert error.value.code == expected
+    assert len(calls) == attempts
+    assert retries == ([expected.lower()] if attempts == 2 else [])
+
+
+async def test_truncated_kimi_output_increases_budgeted_limit(monkeypatch):
+    import httpx
+
+    from app.config import get_settings
+    from app.summarizer import ModelBudget
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake-key")
+    monkeypatch.setattr(get_settings(), "model_base_url", "https://example.test/v1")
+    monkeypatch.setattr(get_settings(), "model_id", "kimi-k3")
+    payloads = []
+    budget = ModelBudget(100000)
+
+    def respond(request):
+        payloads.append(json.loads(request.content))
+        first = len(payloads) == 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "length" if first else "stop",
+                        "message": {
+                            "content": "{" if first else '{"topics":[],"decisions":[],"actions":[]}'
+                        },
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await request_summary(client, [], {}, set(), budget=budget)
+    assert [p["max_completion_tokens"] for p in payloads] == [6000, 12000]
+    assert all(p["response_format"] == {"type": "json_object"} for p in payloads)
+    assert all("max_tokens" not in p for p in payloads)
+    assert budget.used == sum(
+        len(json.dumps(p["messages"], ensure_ascii=False).encode())
+        + p["max_completion_tokens"]
+        + 1024
+        for p in payloads
+    )
+
+
+async def test_timeout_retry_keeps_prompt_and_classifies_failure(monkeypatch):
+    import httpx
+
+    import app.summarizer as summarizer
+    from app.config import get_settings
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake-key")
+    monkeypatch.setattr(get_settings(), "model_base_url", "https://example.test/v1")
+    calls, retries = [], []
+    monkeypatch.setattr(summarizer, "retry", retries.append)
+
+    async def no_wait(seconds):
+        pass
+
+    monkeypatch.setattr(summarizer.asyncio, "sleep", no_wait)
+
+    def respond(request):
+        calls.append(json.loads(request.content))
+        raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(PipelineError) as error:
+            await request_summary(client, [], {}, set())
+    assert error.value.code == "MODEL_TIMEOUT"
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert retries == ["model_timeout"]
