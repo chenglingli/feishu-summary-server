@@ -9,14 +9,16 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session as DBSession
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import get_settings
-from app.db import Audit, Identity, ManualRequest, Run, Token, User, get_db, now
+from app.db import Audit, Identity, ManualRequest, Run, SessionLocal, Token, User, get_db, now
 from app.oauth import router
 from app.schemas import (
     Envelope,
+    HealthView,
     LoginOptions,
     Page,
     RunCreated,
@@ -54,7 +56,14 @@ app.include_router(router)
 @app.middleware("http")
 async def request_context(request, call_next):
     request.state.request_id = str(uuid4())
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        if request.url.path.startswith("/api/admin/"):
+            await run_in_threadpool(record_admin_access, request, False)
+        raise
+    if request.url.path.startswith("/api/admin/"):
+        await run_in_threadpool(record_admin_access, request, response.status_code < 400)
     response.headers["X-Request-ID"] = request.state.request_id
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -271,33 +280,35 @@ def transition(
     return ok(request, settings_dto(user))
 
 
-def admin(request: Request, db: DBSession = Depends(get_db)):
-    identity = None
-    try:
-        identity = authenticated(request, db)
-        if identity.open_id not in get_settings().admins:
-            raise Problem(403, "ADMIN_REQUIRED", "无管理员权限")
-    except Problem:
+def record_admin_access(request: Request, allowed: bool):
+    # Store the route template, never arbitrary paths/query strings or search terms.
+    route = request.scope.get("route")
+    action = getattr(route, "path", "/api/admin/unmatched")
+    with SessionLocal() as db:
         db.add(
             Audit(
-                actor_id=identity.id if identity else None,
-                action=request.url.path,
-                allowed=False,
+                actor_id=getattr(request.state, "admin_actor_id", None),
+                action=action,
+                allowed=allowed,
                 request_id=request.state.request_id,
             )
         )
         db.commit()
-        raise
-    db.add(
-        Audit(
-            actor_id=identity.id,
-            action=request.url.path,
-            allowed=True,
-            request_id=request.state.request_id,
-        )
-    )
-    db.commit()
+
+
+def admin(request: Request, db: DBSession = Depends(get_db)):
+    identity = authenticated(request, db)
+    request.state.admin_actor_id = identity.id
+    if identity.open_id not in get_settings().admins:
+        raise Problem(403, "ADMIN_REQUIRED", "无管理员权限")
     return identity
+
+
+@app.get("/api/admin/health", response_model=Envelope[HealthView])
+def admin_health(request: Request, identity=Depends(admin), db: DBSession = Depends(get_db)):
+    from app.health import snapshot
+
+    return ok(request, snapshot(db))
 
 
 @app.get("/api/admin/users", response_model=Envelope[Page[UserView]])

@@ -513,6 +513,24 @@
         }
       }
     },
+    "/api/admin/health": {
+      "get": {
+        "summary": "Admin Health",
+        "operationId": "admin_health_api_admin_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_HealthView_"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/users": {
       "get": {
         "summary": "Users",
@@ -954,6 +972,23 @@
         ],
         "title": "DemoAccount"
       },
+      "Envelope_HealthView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HealthView"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "Envelope[HealthView]"
+      },
       "Envelope_LoginOptions_": {
         "properties": {
           "data": {
@@ -1085,6 +1120,64 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthView": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "maintenance": {
+            "type": "boolean",
+            "title": "Maintenance"
+          },
+          "runner_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runner Heartbeat At"
+          },
+          "runner_lag_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runner Lag Seconds"
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "overdue": {
+            "type": "integer",
+            "title": "Overdue"
+          },
+          "delivery_unknown_24h": {
+            "type": "integer",
+            "title": "Delivery Unknown 24H"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "maintenance",
+          "runner_heartbeat_at",
+          "runner_lag_seconds",
+          "queued",
+          "overdue",
+          "delivery_unknown_24h"
+        ],
+        "title": "HealthView"
       },
       "LoginOptions": {
         "properties": {

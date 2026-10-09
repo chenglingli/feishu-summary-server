@@ -105,3 +105,13 @@ class LoginOptions(BaseModel):
     demo: bool
     feishu_enabled: bool
     accounts: list[DemoAccount]
+
+
+class HealthView(BaseModel):
+    status: str
+    maintenance: bool
+    runner_heartbeat_at: datetime | None
+    runner_lag_seconds: int | None
+    queued: int
+    overdue: int
+    delivery_unknown_24h: int
