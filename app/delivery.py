@@ -75,7 +75,9 @@ async def deliver(run_id, recipient, parts):
                     run.retry_count += 1
                 db.commit()
             try:
-                message_id = await send_part(access, recipient, content, key)
+                message_id = await send_part(
+                    access, recipient, content, key, msg_type="interactive"
+                )
             except PipelineError as error:
                 if not error.uncertain:
                     with SessionLocal() as db:

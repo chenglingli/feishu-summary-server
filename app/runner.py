@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy import delete, select, text
 
 from app import payloads
+from app.cards import report_parts
 from app.config import get_settings
 from app.db import (
     Audit,
@@ -150,7 +151,7 @@ async def execute(run_id, lease=None):
                     + ("部分信息未能读取。\n" if issues else "")
                     + report
                 )
-                parts = split_report(content)
+                parts = report_parts(content)
             await deliver(run_id, identity.open_id, parts)
             stage(run_id, "succeeded", delivery_status="delivered", finished_at=now())
     except (PipelineError, TimeoutError) as error:

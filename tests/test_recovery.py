@@ -108,8 +108,8 @@ async def test_ambiguous_send_reuses_exact_uuid_and_payload(clients, monkeypatch
     async def token():
         return "fake"
 
-    async def send(*args):
-        calls.append(args)
+    async def send(*args, **kwargs):
+        calls.append((args, kwargs))
         if len(calls) == 1:
             raise PipelineError("DELIVERY_UNKNOWN", uncertain=True)
         return "m1"
