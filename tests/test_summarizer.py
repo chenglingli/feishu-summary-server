@@ -93,3 +93,15 @@ async def test_merge_cannot_silently_drop_decision(monkeypatch):
                 merge=True,
             )
     assert len(calls) == 2
+
+
+def test_model_budget_covers_repair_and_merge_requests():
+    from app.pipeline import PipelineError
+    from app.summarizer import ModelBudget
+
+    budget = ModelBudget(10000)
+    payload = {"messages": [{"content": "fake"}], "max_tokens": 6000}
+    budget.reserve(payload)
+    with pytest.raises(PipelineError) as error:
+        budget.reserve(payload)
+    assert error.value.code == "MODEL_TOKEN_BUDGET_EXCEEDED"

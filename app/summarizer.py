@@ -11,6 +11,23 @@ from app.metrics import retry
 from app.pipeline import Finding, PipelineError, Summary
 
 
+class ModelBudget:
+    def __init__(self, limit):
+        self.limit, self.used = limit, 0
+
+    def reserve(self, payload):
+        # Conservative UTF-8 byte accounting plus output cap and framing allowance.
+        # Provider-specific tokenizer/billing still needs tenant validation.
+        amount = (
+            len(json.dumps(payload["messages"], ensure_ascii=False).encode())
+            + payload["max_tokens"]
+            + 1024
+        )
+        if self.used + amount > self.limit:
+            raise PipelineError("MODEL_TOKEN_BUDGET_EXCEEDED")
+        self.used += amount
+
+
 def batches(values, limit=20000):
     batch: list[dict] = []
     size = 0
@@ -53,7 +70,7 @@ def deduplicate(findings):
     return list(unique.values())
 
 
-async def request_summary(client, data, sources, primary, merge=False):
+async def request_summary(client, data, sources, primary, merge=False, budget=None):
     cfg = get_settings()
     required: dict[str, set[str]] = {}
     # During merging, preserve all evidence in each category; dropping a decision is a validation failure.
@@ -82,7 +99,9 @@ async def request_summary(client, data, sources, primary, merge=False):
             {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
         ],
     }
+    budget = budget or ModelBudget(cfg.model_token_budget)
     for attempt in range(2):
+        budget.reserve(payload)
         try:
             response = await client.post(
                 cfg.model_base_url.rstrip("/") + "/chat/completions",
@@ -130,10 +149,11 @@ async def summarize_messages(messages):
                 {**message, "source": key, "text": message["text"][offset : offset + 12000]}
             )
     results = []
+    budget = ModelBudget(get_settings().model_token_budget)
     async with httpx.AsyncClient(timeout=120) as client:
         for chunk in batches(pieces):
             allowed = {piece["source"]: sources[piece["source"]] for piece in chunk}
-            results.append(await request_summary(client, chunk, allowed, primary))
+            results.append(await request_summary(client, chunk, allowed, primary, budget=budget))
         # Bounded second pass merges related facts without ever sending an unbounded full transcript.
         if len(results) > 1:
             merged = []
@@ -142,7 +162,9 @@ async def summarize_messages(messages):
                     merged.append(Summary.model_validate(batch[0]))
                 else:
                     merged.append(
-                        await request_summary(client, batch, sources, primary, merge=True)
+                        await request_summary(
+                            client, batch, sources, primary, merge=True, budget=budget
+                        )
                     )
             results = merged
     output = []

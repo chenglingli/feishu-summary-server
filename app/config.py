@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     token_encryption_key_file: str = ""
     model_base_url: str = ""
     model_id: str = ""
+    model_token_budget: int = Field(default=200000, ge=10000, le=2000000)
     model_api_key_file: str = ""
     maintenance_mode: bool = False
     payload_dir: str = "/run/summary-data"
