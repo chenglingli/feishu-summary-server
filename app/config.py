@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     model_id: str = ""
     model_api_key_file: str = ""
     maintenance_mode: bool = False
+    payload_dir: str = "/run/summary-data"
 
     @model_validator(mode="after")
     def validate_environment(self):

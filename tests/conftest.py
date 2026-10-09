@@ -38,3 +38,10 @@ def clients():
     yield result
     for client in result.values():
         client.close()
+
+
+@pytest.fixture(autouse=True)
+def payload_directory(tmp_path, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "payload_dir", str(tmp_path / "payloads"))
