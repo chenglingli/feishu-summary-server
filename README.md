@@ -22,7 +22,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
 uv run python -m app.runner
 ```
 
-第三个终端在前端仓库运行 `npm ci && npm run dev`。打开下列任一入口；测试隔离时使用不同浏览器 Profile/隐身窗口：
+第三个终端在前端仓库运行 `npm ci && npm run dev`。打开首页 <http://localhost:5173> 选择演示账号，或使用下列入口；测试隔离时使用不同浏览器 Profile/隐身窗口：
 
 - 员工 A：<http://localhost:5173/auth/dev/login/demo-a>
 - 员工 B：<http://localhost:5173/auth/dev/login/demo-b>
@@ -63,9 +63,9 @@ AES-GCM 密钥是 32 字节随机数的 Base64 编码，放入 `TOKEN_ENCRYPTION
 
 必须设置 FRONTEND_IMAGE、BACKEND_IMAGE、POSTGRES_IMAGE（均为明确镜像 digest）、APP_ENV_FILE、SECRETS_DIR、TLS_DIR。生产运行环境文件中的数据库连接使用 `postgres:5432`，Secret 文件路径使用 `/run/secrets/...`。目录挂载中的文件必须允许 UID 10001 读取。先启动 postgres，再执行 `docker compose -f deploy/compose.yaml --profile migration run --rm migrate`，成功后启动 api、runner、frontend。
 
-runner 仅允许一个进程，内部最多两用户并发；不要扩副本。其 PostgreSQL advisory lock 用于单实例选主，不等于设计中尚未完成的任务租约/fencing。升级要先进入维护、排空 runner，再迁移。主机应禁用 swap/core dump；正文与模型输出当前只在进程内存中，数据库仅保存元数据和加密凭证。
+runner 仅允许一个进程，内部最多两用户并发；不要扩副本。PostgreSQL advisory lock 用于单实例选主，任务另有租约、心跳与 fencing。升级要先进入维护、排空 runner，再迁移。主机应禁用 swap/core dump；正文与模型输出在进程内存中，固定发送载荷存于 runner 的 tmpfs，数据库仅保存元数据和加密凭证。容器重建会丢失 tmpfs；未知发送结果保持不确定。
 
-容器构建/HTTPS/生产发布、备份恢复演练尚未验证，详见实现状态。
+前后端镜像已在本机构建通过。生产发布与恢复目标尚未验收，详见实现状态及 [运维文档](docs/OPERATIONS.md)。
 
 ## Git 与代码约定
 
