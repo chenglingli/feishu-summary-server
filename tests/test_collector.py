@@ -58,7 +58,7 @@ async def test_history_detects_loop(monkeypatch):
         async def request(self, *args, **kwargs):
             return {"items": [], "has_more": True, "page_token": "same"}
 
-    with pytest.raises(PipelineError, match=""):
+    with pytest.raises(PipelineError):
         _ = [
             item
             async for item in history(Client(), "chat", "chat-a", START, START + timedelta(days=1))

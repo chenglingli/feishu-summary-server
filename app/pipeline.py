@@ -43,8 +43,12 @@ async def user_access(user_id, epoch):
     # Session-scoped advisory lock serializes rotation without an open DB transaction during HTTP.
     with engine.connect() as connection:
         key = int.from_bytes(hashlib.sha256(user_id.encode()).digest()[:8], "big", signed=True)
-        connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
-        connection.commit()
+        while True:
+            acquired = connection.scalar(text("SELECT pg_try_advisory_lock(:key)"), {"key": key})
+            connection.commit()
+            if acquired:
+                break
+            await asyncio.sleep(0.1)
         try:
             with SessionLocal() as db:
                 user, token = db.get(User, user_id), db.get(Token, user_id)
@@ -95,6 +99,12 @@ async def user_access(user_id, epoch):
                 user.auth_checked_at = now()
                 db.commit()
             return replacement["access_token"]
+        except PipelineError as error:
+            if error.code == "AUTHORIZATION_REQUIRED":
+                from app.maintenance import mark_needs_reauth
+
+                mark_needs_reauth(user_id, epoch)
+            raise
         finally:
             connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
             connection.commit()

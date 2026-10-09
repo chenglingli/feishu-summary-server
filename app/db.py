@@ -44,6 +44,7 @@ class User(Base):
     identity_id: Mapped[str] = mapped_column(ForeignKey("identities.id"), unique=True)
     auth_status: Mapped[str] = mapped_column(default="valid")
     auth_epoch: Mapped[int] = mapped_column(default=1)
+    reauth_notice_epoch: Mapped[int] = mapped_column(default=0, server_default="0")
     first_authorized_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     last_authorized_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     auth_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -156,3 +157,12 @@ class DeliveryPart(Base):
     status: Mapped[str] = mapped_column(default="sending")
     first_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     message_id: Mapped[str | None]
+
+
+class AuthNotice(Base):
+    __tablename__ = "auth_notices"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    auth_epoch: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(default="sending")
+    message_id: Mapped[str | None]
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

@@ -10,6 +10,7 @@ from sqlalchemy import delete, select, text
 from app.config import get_settings
 from app.db import (
     Audit,
+    AuthNotice,
     DeliveryPart,
     Identity,
     ManualRequest,
@@ -21,6 +22,7 @@ from app.db import (
     engine,
     now,
 )
+from app.maintenance import maintain_credentials, notify_run_reauth
 from app.pipeline import PipelineError, bot_token, collect, send_part, summarize, user_access
 from app.security import digest
 from app.services import ACTIVE, create_run, next_schedule
@@ -156,6 +158,8 @@ async def execute(run_id):
             error.code if isinstance(error, PipelineError) else "TASK_TIMEOUT",
             getattr(error, "uncertain", False),
         )
+        if isinstance(error, PipelineError) and error.code == "AUTHORIZATION_REQUIRED":
+            await notify_run_reauth(run_id)
     except Exception:
         # Never log arbitrary upstream exceptions: they can contain chat content or credentials.
         fail(run_id, "INTERNAL_PIPELINE_ERROR", True)
@@ -197,6 +201,8 @@ def clean():
         db.execute(delete(OAuthState).where(OAuthState.expires_at < now()))
         db.execute(delete(ManualRequest).where(ManualRequest.expires_at < now()))
         db.execute(delete(Audit).where(Audit.created_at < now() - timedelta(days=30)))
+        db.execute(delete(AuthNotice).where(AuthNotice.attempted_at < now() - timedelta(days=30)))
+
         expired = select(Run.id).where(
             Run.scheduled_at < now() - timedelta(days=30), Run.execution_status.not_in(ACTIVE)
         )
@@ -217,6 +223,8 @@ async def main():
         try:
             recover()
             tasks: dict[tuple[str, str], asyncio.Task] = {}
+            next_maintenance = now()
+            maintenance_task = None
             while not stop.is_set():
                 # Loss of the leadership connection stops claiming new tasks.
                 leader.execute(text("SELECT 1"))
@@ -224,6 +232,11 @@ async def main():
                 tasks = {k: v for k, v in tasks.items() if not v.done()}
                 schedule()
                 clean()
+                if now() >= next_maintenance and (
+                    maintenance_task is None or maintenance_task.done()
+                ):
+                    maintenance_task = asyncio.create_task(maintain_credentials())
+                    next_maintenance = now() + timedelta(hours=1)
                 if not get_settings().maintenance_mode:
                     with SessionLocal() as db:
                         candidates = db.scalars(
@@ -251,6 +264,8 @@ async def main():
                     pass
             if tasks:
                 await asyncio.gather(*tasks.values())
+            if maintenance_task:
+                await maintenance_task
         finally:
             leader.execute(text("SELECT pg_advisory_unlock(743820196)"))
             leader.commit()
