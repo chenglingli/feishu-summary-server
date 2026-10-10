@@ -1,5 +1,7 @@
 # 飞书个人会话总结助手 · 后端
 
+> `docs/` 为本机维护的文档目录，不随 Git 分发。下文指向该目录的链接仅在本机已有文档时可用；新克隆需另行复制文档。
+
 Python 3.12 / FastAPI / PostgreSQL / SQLAlchemy / Alembic。前端位于相邻的 `feishu-summary-web` 仓库。
 
 **当前交付是可运行的首个开发版本，已验证两名演示用户的网页—API—任务闭环。真实飞书、模型和生产部署尚未验收。** 默认关闭真实消息处理。详细差距见 [实现状态](docs/IMPLEMENTATION_STATUS.md)。不要把演示任务成功等同于真实消息采集或发送成功。

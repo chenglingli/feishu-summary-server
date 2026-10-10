@@ -1,6 +1,6 @@
 # Repository instructions
 
-- Read README.md and docs/IMPLEMENTATION_STATUS.md before changing behavior.
+- Read README.md before changing behavior. Also read docs/IMPLEMENTATION_STATUS.md when present; docs/ is maintained locally and is not distributed through Git.
 - Never commit secrets, message bodies, summaries, or real user fixtures.
 - Keep response models explicit; update contracts/openapi.json with API changes.
 - Add comments for security decisions, idempotency and failure recovery where intent is not obvious.
