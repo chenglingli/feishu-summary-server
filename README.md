@@ -90,3 +90,11 @@ bash scripts/services.sh restart
 PID 文件及日志位于后端 `.local-services/`（已忽略，不提交），新建文件仅当前用户可读写。`logs` 显示全部服务最近40行，`logs api/web/runner/ngrok` 显示单个服务日志。日志追加保存，需要定期清理；分享日志前检查是否含认证或个人信息。进程运行并不保证 ngrok 已上线，应核对日志、API健康检查和公网首页。
 
 这是当前 Vite 本地试点的后台启动方式，不是开机自启或进程崩溃自动恢复方案；Mac mini 仍需防休眠。需要这些能力时再配置 launchd。保留 `.local-services/processes.json`，否则脚本无法识别原托管进程。
+
+### runner 运行日志
+
+通过服务脚本启动后，用 `bash scripts/services.sh logs runner` 查看最近日志，或用 `tail -f .local-services/runner.log` 持续查看。日志为逐行 JSON，UTC 时间含时区；每条立即刷新，不需要 Python `-u`。
+
+包括 `runner_starting/runner_ready`（启动）、`runner_status`（每5分钟运行状态）、`task_claimed/task_stage/task_finished`（任务及阶段）、`collection_progress`（采集数量，通常最多每5秒一条，阶段结束强制更新）、`model_call_started/model_response/model_call_succeeded/model_call_failed`（每次模型调用）、`task_retry`（重试）、`delivery_started/delivery_succeeded/delivery_failed`（发送分段）及正常退出记录。`run_id` 关联任务，`call_id` 区分模型调用，成功HTTP响应不等于输出校验通过。可按任务编号筛选，例如 `rg '任务UUID' .local-services/runner.log`。
+
+日志只含允许的运行元数据，不记录聊天、总结、模型请求/响应正文、凭证、收件人或任意异常文本。不可从日志恢复历史正文；这次改动不补写过去任务。日志仍是追加文件，尚未配置自动轮转，长期运行需要定期管理大小。更新代码后需要重启 runner 才生效。

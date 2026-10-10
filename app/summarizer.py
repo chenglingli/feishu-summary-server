@@ -3,13 +3,16 @@
 import asyncio
 import json
 import re
+import time
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
 from app.config import get_settings
 from app.metrics import retry
 from app.pipeline import Finding, PipelineError, Summary
+from app.runlog import event
 
 
 class ModelBudget:
@@ -123,11 +126,25 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
         budget.reserve(payload)
         failure = "MODEL_OUTPUT_INVALID"
         repairable = True
+        call_id = str(uuid4())
+        started = time.monotonic()
+        event(
+            "model_call_started",
+            call_id=call_id,
+            kind="merge" if merge else "extract",
+            attempt=attempt + 1,
+        )
         try:
             response = await client.post(
                 cfg.model_base_url.rstrip("/") + "/chat/completions",
                 headers={"Authorization": "Bearer " + cfg.secret("model_api_key_file")},
                 json=payload,
+            )
+            event(
+                "model_response",
+                call_id=call_id,
+                http_status=response.status_code,
+                duration_ms=int((time.monotonic() - started) * 1000),
             )
             response.raise_for_status()
             envelope = response.json()
@@ -146,6 +163,7 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
                     actual = {s for finding in getattr(result, category) for s in finding.sources}
                     if not references <= actual:
                         raise ModelResultError("MODEL_MERGE_INCOMPLETE")
+            event("model_call_succeeded", call_id=call_id)
             return result
         except httpx.TimeoutException:
             failure, repairable = "MODEL_TIMEOUT", False
@@ -162,6 +180,7 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
             )
             # Repeating invalid requests or credentials cannot repair them.
             if status < 500 and status != 429:
+                event("model_call_failed", call_id=call_id, code=failure)
                 raise PipelineError(failure) from None
             repairable = False
         except httpx.HTTPError:
@@ -169,11 +188,18 @@ async def request_summary(client, data, sources, primary, merge=False, budget=No
         except ModelResultError as error:
             failure = error.code
             if failure == "MODEL_CONTENT_FILTERED":
+                event("model_call_failed", call_id=call_id, code=failure)
                 raise PipelineError(failure) from None
         except (KeyError, IndexError, TypeError):
             failure = "MODEL_RESPONSE_SCHEMA_CHANGED"
         except ValueError:
             failure = "MODEL_JSON_SCHEMA_INVALID"
+        event(
+            "model_call_failed",
+            call_id=call_id,
+            code=failure,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         if attempt:
             raise PipelineError(failure) from None
         # Persist only an enumerated failure category, never provider text or response content.

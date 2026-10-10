@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from app.db import Run, SessionLocal, now
+from app.runlog import event
 
 
 def close_step(run):
@@ -37,6 +38,7 @@ def retry(kind):
             steps[-1]["retry_counts"] = counts
             run.steps = steps
         db.commit()
+        event("task_retry", code=kind, retry_count=run.retry_count)
 
 
 class CollectionProgress:
@@ -62,4 +64,5 @@ class CollectionProgress:
             assert run is not None
             run.collection_counts = dict(self.counts)
             db.commit()
+        event("collection_progress", **self.counts)
         self.last = tick

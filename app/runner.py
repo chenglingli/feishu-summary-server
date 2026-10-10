@@ -2,6 +2,7 @@
 
 import asyncio
 import signal
+import time
 from datetime import timedelta
 
 from sqlalchemy import delete, select, text
@@ -30,6 +31,7 @@ from app.leases import assert_owner, claim, current_lease, heartbeat, owns, rele
 from app.maintenance import maintain_credentials, notify_run_reauth
 from app.metrics import close_step
 from app.pipeline import PipelineError, collect, summarize, user_access
+from app.runlog import configure, event
 from app.services import ACTIVE, create_run, next_schedule
 
 
@@ -60,6 +62,7 @@ def stage(run_id, status, **fields):
         for name, value in fields.items():
             setattr(run, name, value)
         db.commit()
+        event("task_stage", run_id=run_id, stage=status, coverage=run.coverage_status)
 
 
 def schedule():
@@ -110,6 +113,8 @@ async def execute(run_id, lease=None):
     if not lease:
         return
     context = current_lease.set(lease)
+    started = time.monotonic()
+    event("task_claimed")
     stop = asyncio.Event()
     pulse = asyncio.create_task(heartbeat(lease, stop))
     try:
@@ -168,7 +173,8 @@ async def execute(run_id, lease=None):
         )
         if isinstance(error, PipelineError) and error.code == "AUTHORIZATION_REQUIRED":
             await notify_run_reauth(run_id)
-    except Exception:
+    except Exception as error:
+        event("task_exception", error_type=type(error).__name__)
         fail(run_id, "INTERNAL_PIPELINE_ERROR", True)
     finally:
         stop.set()
@@ -177,12 +183,18 @@ async def execute(run_id, lease=None):
             run = db.get(Run, run_id)
             terminal = bool(run and run.execution_status not in ACTIVE)
         release(lease)
+        event(
+            "task_finished",
+            stage=run.execution_status if run else "unknown",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         current_lease.reset(context)
         if terminal and not get_settings().mock_auth_enabled:
             payloads.remove(run_id)
 
 
 def fail(run_id, code, uncertain=False):
+    event("task_failed", run_id=run_id, code=code)
     with SessionLocal() as db:
         run = db.get(Run, run_id)
         if not run or run.execution_status not in ACTIVE:
@@ -295,24 +307,39 @@ def clean():
         db.commit()
 
 
+def task_done(task):
+    if not task.cancelled():
+        error = task.exception()
+        if error:
+            event("background_task_failed", error_type=type(error).__name__)
+
+
 async def main():
+    configure()
+    event("runner_starting")
     stop = asyncio.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         asyncio.get_running_loop().add_signal_handler(sig, stop.set)
     with engine.connect() as leader:
         if not leader.scalar(text("SELECT pg_try_advisory_lock(743820196)")):
+            event("runner_already_active")
             raise SystemExit("Another runner is already active")
         leader.commit()
+        event("runner_ready")
         try:
             recover()
             tasks: dict[tuple[str, str], asyncio.Task] = {}
             next_maintenance = now()
             maintenance_task = None
+            next_status = 0.0
             while not stop.is_set():
                 # Loss of the leadership connection stops claiming new tasks.
                 leader.execute(text("SELECT 1"))
                 leader.commit()
                 tasks = {k: v for k, v in tasks.items() if not v.done()}
+                if time.monotonic() >= next_status:
+                    event("runner_status", active_tasks=len(tasks))
+                    next_status = time.monotonic() + 300
                 schedule()
                 recover()
                 clean()
@@ -324,7 +351,9 @@ async def main():
                 if now() >= next_maintenance and (
                     maintenance_task is None or maintenance_task.done()
                 ):
+                    event("maintenance_started")
                     maintenance_task = asyncio.create_task(maintain_credentials())
+                    maintenance_task.add_done_callback(task_done)
                     next_maintenance = now() + timedelta(hours=1)
                 if not get_settings().maintenance_mode:
                     with SessionLocal() as db:
@@ -344,11 +373,13 @@ async def main():
                                 continue
                             occupied.add(run.user_id)
                             tasks[(run.id, run.user_id)] = asyncio.create_task(execute(run.id))
+                            tasks[(run.id, run.user_id)].add_done_callback(task_done)
                         db.commit()
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=15)
                 except TimeoutError:
                     pass
+            event("runner_draining", active_tasks=len(tasks))
             if tasks:
                 await asyncio.gather(*tasks.values())
             if maintenance_task:
@@ -356,6 +387,7 @@ async def main():
         finally:
             leader.execute(text("SELECT pg_advisory_unlock(743820196)"))
             leader.commit()
+            event("runner_stopped")
 
 
 if __name__ == "__main__":

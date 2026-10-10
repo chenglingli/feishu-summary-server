@@ -12,6 +12,7 @@ from app.db import DeliveryPart, Run, SessionLocal, now
 from app.leases import assert_owner
 from app.metrics import retry
 from app.pipeline import PipelineError, bot_token, send_part
+from app.runlog import event
 from app.security import digest
 
 
@@ -78,11 +79,13 @@ async def deliver(run_id, recipient, parts):
                 run.execution_status, run.delivery_status = "sending", "sending"
                 key = part.uuid
                 db.commit()
+            event("delivery_started", part=index, parts=len(parts), attempt=attempt + 1)
             try:
                 message_id = await send_part(
                     access, recipient, content, key, msg_type="interactive"
                 )
             except PipelineError as error:
+                event("delivery_failed", part=index, code=error.code)
                 if not error.uncertain:
                     with SessionLocal() as db:
                         run = db.get(Run, run_id)
@@ -103,5 +106,6 @@ async def deliver(run_id, recipient, parts):
                 assert part is not None
                 part.status, part.message_id = "delivered", message_id
                 db.commit()
+            event("delivery_succeeded", part=index, parts=len(parts))
             await asyncio.sleep(1)
             break
