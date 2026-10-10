@@ -13,3 +13,6 @@ secrets/
 .DS_Store
 
 .local-services/
+
+# Local project documentation (not distributed with the repository).
+/docs/
