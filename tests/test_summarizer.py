@@ -303,3 +303,48 @@ def test_report_statistics_use_window_and_collector_counts():
     assert "120 条" not in text and "partial" not in text
     empty = report_content(end - timedelta(hours=12), end, {"parsed": 0}, [], "没有可总结的消息。")
     assert "过去 12 小时内 0 条" in empty and "覆盖提示" not in empty
+
+
+async def test_model_logs_attempts_without_message_or_response_content(monkeypatch, caplog):
+    import httpx
+
+    from app.config import get_settings
+    from app.leases import current_lease
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "secret-do-not-log")
+    monkeypatch.setattr(get_settings(), "model_base_url", "https://example.test/v1")
+    caplog.set_level("INFO", logger="summary.runner")
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "private-invalid-output"
+                            if len(calls) == 1
+                            else '{"topics":[],"decisions":[],"actions":[]}'
+                        }
+                    }
+                ]
+            },
+        )
+
+    token = current_lease.set(None)
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            await request_summary(client, [{"text": "private-chat-body"}], {}, set())
+    finally:
+        current_lease.reset(token)
+    records = [json.loads(r.message) for r in caplog.records if r.name == "summary.runner"]
+    starts = [r for r in records if r["event"] == "model_call_started"]
+    assert len(starts) == 2 and starts[0]["call_id"] != starts[1]["call_id"]
+    assert any(r.get("code") == "MODEL_JSON_SCHEMA_INVALID" for r in records)
+    assert records[-1]["event"] == "model_call_succeeded"
+    assert all(
+        value not in caplog.text
+        for value in ["private-chat-body", "private-invalid-output", "secret-do-not-log"]
+    )
