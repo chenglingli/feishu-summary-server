@@ -70,3 +70,23 @@ runner 仅允许一个进程，内部最多两用户并发；不要扩副本。P
 ## Git 与代码约定
 
 两个仓库独立 Git 管理。每次提交使用主题和正文，正文说明改动原因、验证结果、未完成事项。提交前运行相应检查；锁文件、迁移、接口契约随代码提交。注释说明权限边界、幂等、凭证轮换及为何这样处理，不重复每行代码。当前文档以本仓库 `docs/` 为实现阶段入口。
+
+## Mac mini 一条命令管理后台服务
+
+完成 `uv sync --locked`、前端 `npm ci`、后端 `.env`/密钥配置、数据库迁移和 ngrok 认证后，在后端目录执行：
+
+```bash
+bash scripts/services.sh start
+bash scripts/services.sh status
+bash scripts/services.sh logs runner
+bash scripts/services.sh stop
+bash scripts/services.sh restart
+```
+
+`start` 后台运行 API、Vite 前端、ngrok 和 runner，退出 SSH 不会主动终止这些进程。默认前端在后端的同级 `feishu-summary-web` 目录；非同级时用 `SUMMARY_WEB_DIR=/绝对路径/feishu-summary-web bash scripts/services.sh start`。优先使用 Homebrew Node 22。脚本不安装依赖、不迁移数据库、不启动或停止 PostgreSQL，数据库需事先通过 Homebrew 启动。
+
+首次使用前，请停止之前手动/nohup 启动的四个服务。脚本检测端口及常见外部 runner/ngrok 进程，但不会接管或停止它们。只停止它自己记录且启动时间/命令仍匹配的进程；runner 正在退出时最多等30秒，不强制杀死，不继续重启，稍后检查 status。重复 start 会跳过仍在运行的托管进程。
+
+PID 文件及日志位于后端 `.local-services/`（已忽略，不提交），新建文件仅当前用户可读写。`logs` 显示全部服务最近40行，`logs api/web/runner/ngrok` 显示单个服务日志。日志追加保存，需要定期清理；分享日志前检查是否含认证或个人信息。进程运行并不保证 ngrok 已上线，应核对日志、API健康检查和公网首页。
+
+这是当前 Vite 本地试点的后台启动方式，不是开机自启或进程崩溃自动恢复方案；Mac mini 仍需防休眠。需要这些能力时再配置 launchd。保留 `.local-services/processes.json`，否则脚本无法识别原托管进程。
