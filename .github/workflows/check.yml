@@ -1,0 +1,26 @@
+name: checks
+on: [push, pull_request]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_DB: summary_test, POSTGRES_USER: summary, POSTGRES_PASSWORD: summary}
+        ports: ['5432:5432']
+        options: --health-cmd='pg_isready -U summary' --health-interval=5s --health-retries=10
+    env:
+      DATABASE_URL: postgresql+psycopg://summary:summary@localhost:5432/summary_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: {version: '0.11.13'}
+      - run: uv sync --locked
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check
+      - run: uv run ruff check app tests
+      - run: uv run ruff format --check app tests
+      - run: uv run mypy app
+      - run: uv run pytest -q
+      - run: uv run python -m scripts.export_contract && git diff --exit-code contracts/openapi.json
+      - run: docker build -t feishu-summary-server:ci .
