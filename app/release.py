@@ -23,6 +23,7 @@ class Release(BaseModel):
     migration: str
 
 
+# 核对前后端契约摘要与迁移版本一致后，生成固定镜像引用的环境变量。
 def validate_pair(release, backend_contract, frontend_contract, migration):
     hashes = {hashlib.sha256(value).hexdigest() for value in (backend_contract, frontend_contract)}
     if hashes != {release.contract_sha256}:
@@ -38,6 +39,7 @@ def validate_pair(release, backend_contract, frontend_contract, migration):
     )
 
 
+# 校验发布清单并创建新的镜像配置文件；失败只输出安全检查提示。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", help="JSON-subset YAML release manifest")

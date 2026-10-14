@@ -35,6 +35,7 @@ from app.runlog import configure, event
 from app.services import ACTIVE, create_run, next_schedule
 
 
+# 检查任务授权快照和当前访问权限；重新授权、停用或移出试点后，旧任务不可继续。
 def permitted(db, run):
     cfg = get_settings()
     user = db.get(User, run.user_id)
@@ -50,6 +51,7 @@ def permitted(db, run):
     )
 
 
+# 持有任务行锁并验证租约后切换阶段，同时结束上一阶段计时并提交进度。
 def stage(run_id, status, **fields):
     with SessionLocal() as db:
         run = db.scalar(select(Run).where(Run.id == run_id).with_for_update())
@@ -65,6 +67,8 @@ def stage(run_id, status, **fields):
         event("task_stage", run_id=run_id, stage=status, coverage=run.coverage_status)
 
 
+# 将到期计划转换为固定统计窗口的任务，并推进下次执行时间。
+# 超过两小时的历史计划只记为错过，避免服务恢复时集中补发旧报告。
 def schedule():
     if get_settings().maintenance_mode:
         return
@@ -91,6 +95,7 @@ def schedule():
         db.commit()
 
 
+# 按 UTF-8 字节切分纯文本并添加序号；当前卡片发送流程使用 report_parts。
 def split_report(content, limit=18000):
     # Bound UTF-8 bytes, not Python character counts. Text payload avoids model-generated markup.
     pieces: list[str] = []
@@ -108,6 +113,8 @@ def split_report(content, limit=18000):
     return [f"({i + 1}/{len(pieces)})\n{x}" for i, x in enumerate(pieces)]
 
 
+# 执行单个任务：领取租约、采集消息、生成报告、发送固定分段、记录终态。
+# 恢复任务复用首次执行的截止时间；已有发送载荷时直接恢复发送，避免重新生成内容。
 async def execute(run_id, lease=None):
     lease = lease or claim(run_id)
     if not lease:
@@ -128,6 +135,7 @@ async def execute(run_id, lease=None):
             deadline = run.deadline_at
         assert deadline is not None
         async with asyncio.timeout(max(0, (deadline - now()).total_seconds())):
+            # 恢复发送必须复用已固定的载荷；只有未准备发送的任务才重新采集与总结。
             if run.delivery_parts_count:
                 parts = payloads.load(run)
             else:
@@ -150,6 +158,7 @@ async def execute(run_id, lease=None):
                         else ("complete" if messages else "no_data"),
                     )
                     report = await summarize(messages)
+                    # 可交付的部分总结仍进入发送流程，同时在任务覆盖状态中明确标记遗漏。
                     if getattr(report, "incomplete", False):
                         issues = [*issues, "SUMMARY_PARTIAL"]
                 coverage = "partial" if issues else ("complete" if messages else "no_data")
@@ -195,6 +204,7 @@ async def execute(run_id, lease=None):
             payloads.remove(run_id)
 
 
+# 仅由当前有效执行者记录失败，并根据分段状态区分未发送、部分送达和结果未知。
 def fail(run_id, code, uncertain=False):
     event("task_failed", run_id=run_id, code=code)
     with SessionLocal() as db:
@@ -229,6 +239,8 @@ def fail(run_id, code, uncertain=False):
         db.commit()
 
 
+# 回收租约过期的任务；依据截止时间、分段送达记录和载荷是否仍在决定恢复或终止。
+# 已尝试发送却丢失载荷时不可重新总结发送，否则可能重复投递不同内容。
 def recover():
     with SessionLocal() as db:
         ids = list(
@@ -250,6 +262,7 @@ def recover():
                 or (run.lease_until and run.lease_until > now())
             ):
                 continue
+            # 先推进执行代次，使旧协程即便恢复运行也无法继续写入任务进度。
             run.fence += 1
             run.lease_owner, run.lease_until = None, None
             db.execute(delete(UserExecution).where(UserExecution.run_id == run.id))
@@ -265,6 +278,7 @@ def recover():
                     "delivered",
                     now(),
                 )
+            # 重启不重置总超时；已经全部确认送达的任务优先判成功，其余超时终止。
             elif run.deadline_at and run.deadline_at <= now():
                 run.execution_status = "delivery_unknown" if pending_unknown else "failed"
                 run.delivery_status = (
@@ -291,6 +305,7 @@ def recover():
             db.commit()
 
 
+# 清理过期会话、授权状态和历史任务元数据；保留仍在执行的任务。
 def clean():
     with SessionLocal() as db:
         db.execute(delete(Session).where(Session.expires_at < now()))
@@ -309,6 +324,7 @@ def clean():
         db.commit()
 
 
+# 读取后台协程异常防止静默失败，只记录异常类型，不记录可能含敏感数据的异常正文。
 def task_done(task):
     if not task.cancelled():
         error = task.exception()
@@ -316,6 +332,8 @@ def task_done(task):
             event("background_task_failed", error_type=type(error).__name__)
 
 
+# 持有 PostgreSQL 会话级锁运行唯一调度器，最多同时处理两个不同用户的任务。
+# 循环负责调度、故障恢复、清理和凭证维护；正常退出先等待在途任务完成。
 async def main():
     configure()
     event("runner_starting")

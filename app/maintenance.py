@@ -9,6 +9,7 @@ from app.db import AuthNotice, Identity, SessionLocal, Token, User, now
 from app.pipeline import PipelineError, bot_token, send_part, user_access
 
 
+# 仅将匹配授权代次的有效凭证标记为需重授权，避免覆盖后续的新授权。
 def mark_needs_reauth(user_id, epoch):
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -18,6 +19,7 @@ def mark_needs_reauth(user_id, epoch):
             db.commit()
 
 
+# 同一授权代次只记录一次通知意图，再发送固定 UUID 的重授权提醒。
 async def notify_reauth(user_id, epoch):
     cfg = get_settings()
     if cfg.mock_auth_enabled or not cfg.live_pipeline_enabled:
@@ -65,6 +67,7 @@ async def notify_reauth(user_id, epoch):
             db.commit()
 
 
+# 独立于每日任务检查启用用户的凭证，刷新到期令牌并通知需重授权的用户。
 async def maintain_credentials():
     cfg = get_settings()
     if cfg.mock_auth_enabled or not cfg.live_pipeline_enabled or cfg.maintenance_mode:
@@ -96,6 +99,7 @@ async def maintain_credentials():
         await notify_reauth(user.id, user.auth_epoch)
 
 
+# 从任务快照取得用户和授权代次，交由统一通知逻辑校验并去重。
 async def notify_run_reauth(run_id):
     from app.db import Run
 

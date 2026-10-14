@@ -34,6 +34,7 @@ RECOVERABLE_MODEL_ERRORS = {
 class ReportText(str):
     incomplete: bool
 
+    # 为字符串报告附带 incomplete 标记，供 runner 将覆盖状态标记为部分总结。
     def __new__(cls, value, incomplete=False):
         result = super().__new__(cls, value)
         result.incomplete = incomplete
@@ -41,9 +42,11 @@ class ReportText(str):
 
 
 class ModelBudget:
+    # 初始化单任务共享预算；提取、拆批、重试和合并均计入同一账本。
     def __init__(self, limit):
         self.limit, self.used = limit, 0
 
+    # 请求前预留输入估算量、输出上限和协议余量；预算不足时不再发起请求。
     def reserve(self, payload):
         # Conservative UTF-8 byte accounting plus output cap and framing allowance.
         # Provider-specific tokenizer/billing still needs tenant validation.
@@ -57,6 +60,7 @@ class ModelBudget:
         self.used += amount
         return amount
 
+    # 用完整且自洽的供应商 usage 替换预留值；未知用量保留估算，推理用量不重复累加。
     def settle(self, reserved, usage):
         # Only complete, internally consistent provider counts can release a reservation.
         # Missing/invalid usage and requests with unknown outcomes keep their estimate.
@@ -85,6 +89,7 @@ MODEL_BATCH_CHAR_LIMIT = 8000
 MESSAGE_SLICE_CHAR_LIMIT = 4000
 
 
+# 按序列化字符数分组，保持输入顺序；单个超限元素仍独立成批，不在这里截断。
 def batches(values, limit=MODEL_BATCH_CHAR_LIMIT):
     batch: list[dict] = []
     size = 0
@@ -100,11 +105,13 @@ def batches(values, limit=MODEL_BATCH_CHAR_LIMIT):
 
 
 class ModelResultError(ValueError):
+    # 封装模型结果校验类别和来源错误原因，避免向日志传播模型原文。
     def __init__(self, code, reason=None):
         self.code, self.reason = code, reason
         super().__init__(code)
 
 
+# 校验每条结论的引用存在且包含目标消息；删除来源中未明示的负责人和截止时间。
 def validate_findings(result, sources, primary):
     for category in ("topics", "decisions", "actions"):
         for finding in getattr(result, category):
@@ -127,6 +134,7 @@ def validate_findings(result, sources, primary):
                 finding.deadline = None
 
 
+# 合并规范化摘要、负责人、期限和分类相同的结论，保留来源并集。
 def deduplicate(findings):
     unique: dict[tuple, Finding] = {}
     for finding in findings:
@@ -143,6 +151,8 @@ def deduplicate(findings):
     return list(unique.values())
 
 
+# 调用模型并校验 JSON、来源及合并覆盖，最多尝试两次，所有尝试共用预算。
+# 质量问题追加针对性修复提示；鉴权和策略拒绝直接上抛，不能降级成正常报告。
 async def request_summary(
     client, data, sources, primary, merge=False, budget=None, split_on_truncation=False
 ):
@@ -200,6 +210,7 @@ async def request_summary(
         payload["response_format"] = {"type": "json_object"}
     budget = budget or ModelBudget(cfg.model_token_budget)
     for attempt in range(2):
+        # 每次实际请求（含修复重试）先占预算；只有可信 usage 才能释放多余预留。
         reserved = budget.reserve(payload)
         failure = "MODEL_OUTPUT_INVALID"
         repairable = True
@@ -260,6 +271,7 @@ async def request_summary(
             content = choice["message"]["content"]
             if not isinstance(content, str) or not content.strip():
                 raise ModelResultError("MODEL_EMPTY_OUTPUT")
+            # HTTP 成功只代表拿到响应，仍需校验结构、来源和合并时的来源覆盖。
             result = Summary.model_validate_json(content)
             validate_findings(result, sources, primary)
             if merge:
@@ -356,6 +368,8 @@ async def request_summary(
     raise PipelineError("MODEL_OUTPUT_INVALID")
 
 
+# 提取当前批次；截断时最多递归拆分三层，纯背景批次不调用模型。
+# collected 即时保存成功子批次，后续子批失败也不会丢弃已经校验的结论。
 async def extract_batches(client, chunk, sources, primary, budget, depth=0, collected=None):
     allowed = {piece["source"]: sources[piece["source"]] for piece in chunk}
     if not set(allowed) & primary:
@@ -394,6 +408,7 @@ async def extract_batches(client, chunk, sources, primary, budget, depth=0, coll
         return results
 
 
+# 对提取结果做可选合并；可恢复错误时返回原始有效结果，保证已有总结仍可交付。
 async def merge_batch(client, batch, sources, primary, budget):
     if len(batch) == 1:
         return [Summary.model_validate(batch[0])]
@@ -418,6 +433,8 @@ async def merge_batch(client, batch, sources, primary, budget):
         return [Summary.model_validate(item) for item in batch]
 
 
+# 将消息切片、分批提取并有限合并，优先交付已经通过校验的结果。
+# 部分提取失败会明确提示遗漏；预算耗尽停止新增提取，全部失败也不伪装成没有事项。
 async def summarize_messages(messages):
     readable = [m for m in messages if m.get("text")]
     if not readable:
@@ -426,6 +443,7 @@ async def summarize_messages(messages):
             if messages
             else "过去 24 小时没有符合条件的消息。"
         )
+    # 切片共享原消息来源编号，避免长消息被拆分后丢失引用关系。
     sources = {f"S{i + 1}": m for i, m in enumerate(readable)}
     primary = {key for key, message in sources.items() if not message.get("context_only")}
     pieces = []
@@ -473,6 +491,7 @@ async def summarize_messages(messages):
     return render_summary(results)
 
 
+# 按业务类别渲染已校验结论；来源用于内部校验，不在报告中展示定位编号。
 def render_summary(results):
     # Evidence remains mandatory internally; user-facing reports contain no locator appendix.
     output = []

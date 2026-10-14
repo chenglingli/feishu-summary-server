@@ -8,6 +8,7 @@ from app.db import Run, SessionLocal, now
 from app.runlog import event
 
 
+# 补齐当前未结束阶段的结束时间和耗时；重新赋值 JSON 字段以触发 ORM 更新。
 def close_step(run):
     if not run.steps or run.steps[-1].get("finished_at"):
         return
@@ -20,6 +21,7 @@ def close_step(run):
     run.steps = steps
 
 
+# 校验当前租约后累加任务及阶段重试计数；脱离任务上下文时不落库。
 def retry(kind):
     from app.leases import assert_owner, current_lease
 
@@ -44,10 +46,12 @@ def retry(kind):
 class CollectionProgress:
     """Throttle durable counters; only the current leased task may publish progress."""
 
+    # 绑定共享计数字典，初始化进度持久化的节流时间。
     def __init__(self, counts):
         self.counts = counts
         self.last = 0.0
 
+    # 先更新内存计数，通常最多每五秒写库；阶段边界可用 force 强制保存。
     def update(self, *, force=False, **values):
         import time
 

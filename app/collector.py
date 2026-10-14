@@ -11,6 +11,7 @@ from app.metrics import CollectionProgress
 from app.pipeline import Feishu, PipelineError, body_gate, parse_message
 
 
+# 向外扩展到整秒，兼容飞书时间精度；精确的左闭右开窗口由本地解析再次校验。
 def time_filter(start, end):
     # API accepts whole seconds; expand outward and enforce the exact half-open window locally.
     return {
@@ -19,6 +20,7 @@ def time_filter(start, end):
     }
 
 
+# 搜索指定窗口；有截断提示时递归缩小到至少五分钟，并保留父查询已发现的消息。
 async def search_window(client, filters, start, end):
     ids, notices = await client.search({**filters, "time_range": time_filter(start, end)})
     if not notices or end - start <= timedelta(minutes=5):
@@ -30,6 +32,7 @@ async def search_window(client, filters, start, end):
     return ids | left | right, left_issues + right_issues
 
 
+# 分页读取聊天或话题历史并检测分页循环；话题时间范围由调用者在本地过滤。
 async def history(client, container_type, container_id, start, end, on_page=None):
     token, seen = "", set()
     while True:
@@ -63,10 +66,12 @@ async def history(client, container_type, container_id, start, end, on_page=None
         seen.add(token)
 
 
+# 将飞书毫秒时间戳转换为带 UTC 时区的时间，用于窗口判断。
 def stamp(item):
     return datetime.fromtimestamp(int(item["create_time"]) / 1000, timezone.utc)
 
 
+# 判断历史消息是否属于目标范围：单聊、本人发送或明确提及本人。
 def qualifies(item, open_id, p2p):
     return (
         p2p
@@ -75,6 +80,8 @@ def qualifies(item, open_id, p2p):
     )
 
 
+# 汇总单聊、提及本人和本人发送三路搜索，读取正文并补充有限上下文。
+# 返回消息、采集计数及覆盖问题；授权失效立即中止，局部读取失败保留已采集结果。
 async def collect_messages(run, identity, access):
     reasons: dict[str, set[str]] = {}
     issues: list[str] = []
@@ -91,10 +98,12 @@ async def collect_messages(run, identity, access):
     )
     seen_search_ids: set[str] = set()
 
+    # 累计跨搜索路由去重后的发现数，并发布受节流保护的采集进度。
     def search_page(ids):
         seen_search_ids.update(ids)
         progress.update(search_pages=counts["search_pages"] + 1, unique=len(seen_search_ids))
 
+    # 累计上下文分页数量，便于区分搜索耗时与历史读取耗时。
     def history_page():
         progress.update(history_pages=counts["history_pages"] + 1)
 
@@ -110,6 +119,7 @@ async def collect_messages(run, identity, access):
         }
         successful = 0
 
+        # 运行三路搜索并累积命中原因；尾部复查补充新索引消息，不覆盖首轮路由计数。
         async def search_routes(start, end, tail=False):
             nonlocal successful
             for route, filters in routes.items():
@@ -128,6 +138,7 @@ async def collect_messages(run, identity, access):
                         raise
                     issues.append(f"{route}:{error.code}")
 
+        # 第一轮获取完整窗口；等待截止点后再复查尾部，补偿搜索索引的短暂延迟。
         await search_routes(run.window_start, run.window_end)
         if not successful:
             raise PipelineError("ALL_SEARCH_ROUTES_FAILED")
@@ -142,6 +153,7 @@ async def collect_messages(run, identity, access):
         )
         counts["tail_new"] = len(reasons) - before_tail
         progress.update(force=True, phase=4, body_total=len(reasons), unique=len(reasons))
+        # 搜索命中不等于正文可用；逐条读取并再次校验时间、发送者和提及条件。
         for identifier, matched in reasons.items():
             try:
                 item = await client.body(identifier)
@@ -196,6 +208,7 @@ async def collect_messages(run, identity, access):
                     )
                     if not parsed:
                         continue
+                    # 符合目标条件的历史消息可产生结论，其余仅作背景，不能独立生成待办。
                     parsed["context_only"] = not matched
                     if matched:
                         messages[parsed["message_id"]] = parsed

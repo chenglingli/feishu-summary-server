@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     maintenance_mode: bool = False
     payload_dir: str = "/run/summary-data"
 
+    # 启动时校验环境组合：演示仅限本机，生产要求 HTTPS 和凭证，真实流程必须配置模型。
     @model_validator(mode="after")
     def validate_environment(self):
         url = urlparse(self.public_base_url)
@@ -64,18 +65,22 @@ class Settings(BaseSettings):
                 )
         return self
 
+    # 将配置中的逗号分隔试点名单转换为去空白的集合。
     @property
     def pilots(self) -> set[str]:
         return {x.strip() for x in self.pilot_open_ids.split(",") if x.strip()}
 
+    # 将管理员名单转换为集合，用于每次请求的实时权限判断。
     @property
     def admins(self) -> set[str]:
         return {x.strip() for x in self.admin_open_ids.split(",") if x.strip()}
 
+    # HTTPS 使用带 Host 前缀的会话 Cookie，本机 HTTP 使用开发名称。
     @property
     def cookie_name(self) -> str:
         return "__Host-session" if self.public_base_url.startswith("https://") else "dev-session"
 
+    # 按配置指定的文件路径读取密钥，不在环境配置中直接保存密钥正文。
     def secret(self, field: str) -> str:
         path = getattr(self, field)
         if not path:
@@ -83,6 +88,7 @@ class Settings(BaseSettings):
         return Path(path).read_text().strip()
 
 
+# 缓存进程配置，避免每个请求重复读取；修改配置后需重启相应进程。
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

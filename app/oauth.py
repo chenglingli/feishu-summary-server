@@ -21,6 +21,7 @@ SCOPES = {
 }
 
 
+# 轮换网页登录会话，数据库仅保存随机令牌的摘要；Cookie 与服务端使用相同固定有效期。
 def new_session(db, identity, response, old_hash=None):
     if old_hash:
         db.execute(delete(Session).where(Session.id_hash == old_hash))
@@ -46,6 +47,7 @@ def new_session(db, identity, response, old_hash=None):
     )
 
 
+# 生成五分钟有效且绑定当前浏览器的 OAuth state，区分网页登录和消息业务授权。
 def start(request, db, purpose, identity=None):
     cfg = get_settings()
     if cfg.mock_auth_enabled or not cfg.feishu_app_id or not cfg.feishu_app_secret_file:
@@ -94,16 +96,20 @@ def start(request, db, purpose, identity=None):
     return response
 
 
+# 发起身份登录；消息读取权限由独立的业务授权流程获取。
 @router.get("/auth/login/start")
 def login_start(request: Request, db: DBSession = Depends(get_db)):
     return start(request, db, "login")
 
 
+# 为当前试点用户发起消息和离线访问授权，并绑定发起账号与会话。
 @router.post("/auth/feishu/start")
 def feishu_start(request: Request, identity=Depends(personal), db: DBSession = Depends(get_db)):
     return start(request, db, "feishu", identity)
 
 
+# 消费一次性 state，换取并校验飞书身份，再按授权目的建立会话或保存业务凭证。
+# 业务重新授权递增 auth_epoch 并取消旧任务，避免旧执行链继续使用失效授权。
 @router.get("/auth/{purpose}/callback")
 async def callback(
     purpose: str, request: Request, state: str = "", code: str = "", db: DBSession = Depends(get_db)
@@ -184,6 +190,7 @@ async def callback(
         db.flush()
     if identity.access_status != "active" or (expected_id and identity.id != expected_id):
         raise Problem(403, "OAUTH_IDENTITY_MISMATCH", "授权账号不匹配或已停用")
+    # 网页身份登录不保存消息凭证；仅消息授权回调可更新业务授权与离线刷新令牌。
     if purpose == "feishu":
         if (
             identity.open_id not in cfg.pilots
@@ -226,6 +233,7 @@ async def callback(
     return response
 
 
+# 仅在本地演示模式创建预设身份及会话，不访问真实飞书。
 @router.get("/auth/dev/login/{open_id}", include_in_schema=False)
 def dev_login(open_id: str, db: DBSession = Depends(get_db)):
     cfg = get_settings()

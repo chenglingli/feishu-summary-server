@@ -13,18 +13,22 @@ from app.db import Identity, Session, get_db, now
 
 
 class Problem(Exception):
+    # 封装 HTTP 状态、业务错误码和安全提示，供统一异常处理器生成响应。
     def __init__(self, status: int, code: str, message: str, details=None):
         self.status, self.code, self.message, self.details = status, code, message, details
 
 
+# 计算 SHA-256 摘要，用于会话、幂等键或载荷比对，避免保存原始随机令牌。
 def digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+# 生成高熵随机令牌，用于会话、CSRF 和 OAuth 浏览器绑定。
 def random_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+# 使用 AES-GCM 加密业务凭证，并将用户身份和用途绑定为认证附加数据。
 def encrypt_tokens(user_id: str, payload: dict) -> str:
     key = base64.b64decode(get_settings().secret("token_encryption_key_file"), validate=True)
     if len(key) != 32:
@@ -35,6 +39,7 @@ def encrypt_tokens(user_id: str, payload: dict) -> str:
     return "v1:" + base64.b64encode(nonce + data).decode()
 
 
+# 校验版本并按用户绑定解密凭证；密文被篡改或移到其他用户时解密失败。
 def decrypt_tokens(user_id: str, ciphertext: str) -> dict:
     version, encoded = ciphertext.split(":", 1)
     if version != "v1":
@@ -44,6 +49,7 @@ def decrypt_tokens(user_id: str, ciphertext: str) -> dict:
     return json.loads(AESGCM(key).decrypt(data[:12], data[12:], f"{user_id}:tokens:v1".encode()))
 
 
+# 校验持久会话、当前租户和访问范围；写请求额外校验来源与 CSRF，并遵守维护模式。
 def authenticated(request: Request, db: DBSession = Depends(get_db)):
     cfg = get_settings()
     session = db.get(Session, digest(request.cookies.get(cfg.cookie_name, "")))
@@ -75,6 +81,7 @@ def authenticated(request: Request, db: DBSession = Depends(get_db)):
     return identity
 
 
+# 在已登录身份上追加试点成员检查，限制个人助理接口的访问范围。
 def personal(identity: Identity = Depends(authenticated)):
     if identity.open_id not in get_settings().pilots:
         raise Problem(403, "PILOT_REQUIRED", "此账号尚未加入试点")

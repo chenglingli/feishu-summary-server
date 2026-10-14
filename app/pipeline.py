@@ -18,6 +18,7 @@ from app.security import decrypt_tokens, encrypt_tokens
 
 
 class PipelineError(Exception):
+    # 保存可对外展示的错误码；uncertain 表示外部发送可能已成功，不能当作确定失败。
     def __init__(self, code, *, uncertain=False):
         self.code, self.uncertain = code, uncertain
 
@@ -25,10 +26,12 @@ class PipelineError(Exception):
 class RateGate:
     """A single runner owns these gates; deployment must not scale runner replicas."""
 
+    # 初始化进程内共享节流锁和最小请求间隔。
     def __init__(self, interval):
         self.interval, self.last = interval, 0.0
         self.lock = asyncio.Lock()
 
+    # 串行分配请求时隙；使用单调时钟，避免系统时间调整影响节流。
     async def wait(self):
         async with self.lock:
             await asyncio.sleep(max(0, self.last + self.interval - time.monotonic()))
@@ -39,6 +42,8 @@ search_gate = RateGate(1.0)
 body_gate = RateGate(0.2)
 
 
+# 获取用户访问凭证，必要时在用户级 advisory lock 内轮换刷新令牌。
+# 写回前复核授权代次和令牌版本，避免覆盖用户重新授权后的新凭证。
 async def user_access(user_id, epoch):
     cfg = get_settings()
     # Session-scoped advisory lock serializes rotation without an open DB transaction during HTTP.
@@ -112,12 +117,14 @@ async def user_access(user_id, epoch):
 
 
 class Feishu:
+    # 绑定 HTTP 客户端与用户凭证，并保留搜索元数据供后续上下文补全。
     def __init__(self, client, access):
         self.client = client
         self.headers = {"Authorization": f"Bearer {access}"}
         self.search_metadata: dict[str, dict] = {}
         self.on_search_page = None
 
+    # 统一飞书读取请求，最多四次重试网络或服务错误，并将响应异常转换为安全错误码。
     async def request(self, method, path, **kwargs):
         for attempt in range(4):
             try:
@@ -146,6 +153,7 @@ class Feishu:
                 await asyncio.sleep([5, 20, 60][attempt])
         raise PipelineError("FEISHU_READ_FAILED")
 
+    # 节流分页搜索并去重消息 ID；结构缺失或分页循环视为异常，不能误报为空结果。
     async def search(self, filters):
         ids, pages, token, issues = set(), set(), "", []
         while True:
@@ -179,6 +187,7 @@ class Feishu:
                 raise PipelineError("SEARCH_PAGINATION_LOOP")
             pages.add(token)
 
+    # 节流读取单条消息正文；没有可读条目时报告正文不可用。
     async def body(self, message_id):
         await body_gate.wait()
         data = await self.request(
@@ -190,6 +199,7 @@ class Feishu:
         return items[0]
 
 
+# 过滤删除、非用户和窗口外消息，解析文本或富文本；不支持的类型保留计数标记。
 def parse_message(item, open_id, reasons, start, end):
     if item.get("deleted") or item.get("sender", {}).get("sender_type") != "user":
         return None
@@ -229,6 +239,7 @@ def parse_message(item, open_id, reasons, start, end):
     }
 
 
+# 延迟导入采集实现，避免 pipeline 与 collector 的模块依赖循环。
 async def collect(run, identity, access):
     from app.collector import collect_messages
 
@@ -251,12 +262,14 @@ class Summary(BaseModel):
     actions: list[Finding]
 
 
+# 延迟导入分批总结实现，统一 runner 的模型调用入口。
 async def summarize(messages):
     from app.summarizer import summarize_messages
 
     return await summarize_messages(messages)
 
 
+# 获取应用 tenant_access_token，用于机器人发送；失败仅返回安全错误码。
 async def bot_token():
     cfg = get_settings()
     async with httpx.AsyncClient(timeout=20) as client:
@@ -277,6 +290,7 @@ async def bot_token():
             raise PipelineError("BOT_TOKEN_FAILED") from None
 
 
+# 发送一次固定内容与 UUID 的分段；网络异常保留送达不确定性，交由投递层决定重试。
 async def send_part(access, open_id, content, uuid, msg_type="text"):
     # No automatic POST retry: timeout may mean delivered. Persist uncertainty, never regenerate.
     async with httpx.AsyncClient(timeout=30) as client:

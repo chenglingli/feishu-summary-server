@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.pipeline import PipelineError
 
 
+# 将报告放入静态纯文本卡片，链接和按钮由服务端控制，模型不能注入卡片结构。
 def render_card(text):
     return json.dumps(
         {
@@ -35,6 +36,7 @@ def render_card(text):
     )
 
 
+# 将报告按五千字符分段，生成带页码卡片并校验最终请求字节上限。
 def report_parts(text):
     # A 5,000-character cap bounds even double JSON escaping, emoji and source identifiers.
     fragments = [text[start : start + 5000] for start in range(0, len(text), 5000)] or ["暂无内容"]
@@ -52,6 +54,7 @@ def report_parts(text):
     return cards
 
 
+# 用采集计数和北京时间窗口构造报告头，附加覆盖提示与模型总结。
 def report_content(start, end, counts, issues, report):
     # Use collector metadata, never model-generated counts. Context is counted separately.
     local = ZoneInfo("Asia/Shanghai")

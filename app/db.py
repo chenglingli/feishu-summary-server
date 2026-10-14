@@ -16,10 +16,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from app.config import get_settings
 
 
+# 返回带 UTC 时区的当前时间；数据库统一使用 UTC，展示和日志在各自边界转换时区。
 def now() -> datetime:
     return datetime.now(UTC)
 
 
+# 生成用于数据库记录主键的 UUID 字符串。
 def uid() -> str:
     return str(uuid4())
 
@@ -145,6 +147,7 @@ engine = create_engine(get_settings().database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
+# 为单次请求提供数据库会话并确保关闭；事务提交由业务方法显式负责。
 def get_db():
     with SessionLocal() as db:
         yield db

@@ -53,6 +53,7 @@ app.add_middleware(
 app.include_router(router)
 
 
+# 为请求分配追踪编号和安全响应头，并对管理员接口的成功、拒绝与异常访问记录审计。
 @app.middleware("http")
 async def request_context(request, call_next):
     request.state.request_id = str(uuid4())
@@ -70,10 +71,12 @@ async def request_context(request, call_next):
     return response
 
 
+# 统一成功响应结构，附带请求编号供前后端定位同一次调用。
 def ok(request, data):
     return {"data": data, "request_id": request.state.request_id}
 
 
+# 将已分类业务错误转换为统一响应，保留可重试标志及经过筛选的详情。
 @app.exception_handler(Problem)
 async def problem_handler(request, error):
     return JSONResponse(
@@ -90,6 +93,7 @@ async def problem_handler(request, error):
     )
 
 
+# 只返回校验失败的字段位置与类别，避免 Pydantic 错误包含提交的敏感原值。
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request, error):
     # Pydantic errors may contain submitted secrets; only expose field locations and error categories.
@@ -104,6 +108,7 @@ async def validation_handler(request, error):
     )
 
 
+# 将框架 HTTP 异常转换为稳定错误结构，不向客户端透传内部异常描述。
 @app.exception_handler(HTTPException)
 async def http_handler(request, error):
     return await problem_handler(
@@ -116,6 +121,7 @@ async def http_handler(request, error):
     )
 
 
+# 隐藏未分类异常细节，客户端通过请求编号关联排查。
 @app.exception_handler(Exception)
 async def internal_handler(request, error):
     return await problem_handler(
@@ -123,17 +129,20 @@ async def internal_handler(request, error):
     )
 
 
+# 进程存活探针，不依赖数据库可用性。
 @app.get("/health/live")
 def live():
     return {"status": "ok"}
 
 
+# 执行轻量数据库查询，确认 API 已具备访问数据库的能力。
 @app.get("/health/ready")
 def ready(db: DBSession = Depends(get_db)):
     db.execute(text("SELECT 1"))
     return {"status": "ok"}
 
 
+# 返回当前身份、页面能力和 CSRF 令牌；网页登录状态与消息授权状态分别展示。
 @app.get("/api/session", response_model=Envelope[SessionInfo])
 def session_info(
     request: Request, identity=Depends(authenticated), db: DBSession = Depends(get_db)
@@ -154,6 +163,7 @@ def session_info(
     )
 
 
+# 记录最近活动时间，不延长固定会话有效期，也不恢复已过期登录。
 @app.post("/api/session/activity")
 def activity(request: Request, identity=Depends(authenticated), db: DBSession = Depends(get_db)):
     request.state.session.last_seen_at = now()
@@ -161,6 +171,7 @@ def activity(request: Request, identity=Depends(authenticated), db: DBSession = 
     return ok(request, {"active": True})
 
 
+# 删除当前服务端会话并清除 Cookie；不撤销离线业务授权和每日计划。
 @app.post("/api/logout")
 def logout(request: Request, identity=Depends(authenticated), db: DBSession = Depends(get_db)):
     db.delete(request.state.session)
@@ -170,6 +181,7 @@ def logout(request: Request, identity=Depends(authenticated), db: DBSession = De
     return response
 
 
+# 读取当前试点用户的助理设置，不允许跨用户查询。
 @app.get("/api/me/settings", response_model=Envelope[SettingsView])
 def get_my_settings(request: Request, identity=Depends(personal), db: DBSession = Depends(get_db)):
     return ok(request, settings_dto(owner(db, identity)))
@@ -180,6 +192,7 @@ class SettingsInput(BaseModel):
     daily_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
+# 加锁更新每日时间和配置版本，取消尚未开始的旧计划任务并重新计算下次执行时间。
 @app.patch("/api/me/settings", response_model=Envelope[SettingsView])
 def update_settings(
     payload: SettingsInput,
@@ -202,6 +215,7 @@ def update_settings(
     return ok(request, settings_dto(user))
 
 
+# 在用户锁内按幂等键复用任务，检查活动任务与五分钟频率限制后创建新任务。
 @app.post("/api/me/runs", response_model=Envelope[RunCreated])
 def manual_run(
     request: Request,
@@ -212,6 +226,7 @@ def manual_run(
     user = owner(db, identity, lock=True)
     require_authorized(user)
     assert user is not None
+    # 先查幂等记录再查频率限制，使同一次按钮请求重试时返回原任务而非创建重复任务。
     existing = db.scalar(
         select(ManualRequest).where(
             ManualRequest.user_id == user.id,
@@ -249,6 +264,7 @@ def manual_run(
     return ok(request, {"run_id": run.id})
 
 
+# 处理启用、暂停、恢复和停用；停用同时移除凭证并推进授权代次，使旧任务失效。
 @app.post("/api/me/{action}", response_model=Envelope[SettingsView])
 def transition(
     action: Literal["enable", "pause", "resume", "disable"],
@@ -280,6 +296,7 @@ def transition(
     return ok(request, settings_dto(user))
 
 
+# 独立保存管理员访问审计，仅记录路由模板、结果及请求编号。
 def record_admin_access(request: Request, allowed: bool):
     # Store the route template, never arbitrary paths/query strings or search terms.
     route = request.scope.get("route")
@@ -296,6 +313,7 @@ def record_admin_access(request: Request, allowed: bool):
         db.commit()
 
 
+# 校验当前身份的管理员权限，同时保留审计所需的操作者标识。
 def admin(request: Request, db: DBSession = Depends(get_db)):
     identity = authenticated(request, db)
     request.state.admin_actor_id = identity.id
@@ -304,6 +322,7 @@ def admin(request: Request, db: DBSession = Depends(get_db)):
     return identity
 
 
+# 向管理员返回运行健康元数据，不暴露消息、模型输出或密钥。
 @app.get("/api/admin/health", response_model=Envelope[HealthView])
 def admin_health(request: Request, identity=Depends(admin), db: DBSession = Depends(get_db)):
     from app.health import snapshot
@@ -311,6 +330,7 @@ def admin_health(request: Request, identity=Depends(admin), db: DBSession = Depe
     return ok(request, snapshot(db))
 
 
+# 分页查询当前租户的助理用户配置及最近任务结果，支持名称与状态筛选。
 @app.get("/api/admin/users", response_model=Envelope[Page[UserView]])
 def users(
     request: Request,
@@ -366,6 +386,7 @@ def users(
     return ok(request, {"items": items, "total": total, "page": page, "page_size": page_size})
 
 
+# 构造租户隔离的任务查询；普通用户额外限制为本人，管理员可查看同租户。
 def run_query(identity, is_admin):
     query = (
         select(Run, Identity)
@@ -376,6 +397,7 @@ def run_query(identity, is_admin):
     return query if is_admin else query.where(Identity.id == identity.id)
 
 
+# 校验带时区且不超过三十天的查询区间，按过滤条件分页返回任务元数据。
 def list_runs(
     request,
     identity,
@@ -426,7 +448,9 @@ def list_runs(
     )
 
 
+# 生成个人与管理端共用的列表处理器，通过不同依赖注入访问权限。
 def runs_endpoint(is_admin):
+    # 将已校验的列表参数交给统一查询逻辑，避免两类页面的筛选规则分叉。
     def endpoint(
         request: Request,
         page: int = Query(1, ge=1),
@@ -484,7 +508,9 @@ app.get("/api/admin/runs", operation_id="admin_runs", response_model=Envelope[Pa
 )
 
 
+# 生成个人与管理端共用的详情处理器，复用统一的租户和身份隔离规则。
 def detail_endpoint(is_admin):
+    # 读取可见任务及发送分段状态；不可见与不存在都返回 404，避免泄露任务存在性。
     def endpoint(
         run_id: str,
         request: Request,
@@ -518,6 +544,7 @@ app.get(
 )(detail_endpoint(True))
 
 
+# 提供公开登录入口与预设演示账号，不向匿名调用者公开真实用户白名单。
 @app.get("/api/public/login-options", response_model=Envelope[LoginOptions])
 def login_options(request: Request):
     cfg = get_settings()

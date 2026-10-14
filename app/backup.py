@@ -47,6 +47,7 @@ class Archive(BaseModel):
     users: list[UserConfig]
 
 
+# 按显式字段白名单导出配置，不包含业务凭证、会话和消息数据。
 def export_config(db) -> Archive:
     # Explicit field allowlists remain safe even when database models gain secret columns.
     return Archive(
@@ -63,6 +64,7 @@ def export_config(db) -> Archive:
     )
 
 
+# 在维护模式下锁定并校验空库与迁移版本后恢复配置；恢复用户需重新授权。
 def restore_config(db, archive: Archive):
     if not get_settings().maintenance_mode:
         raise ValueError("Restore requires maintenance mode and stopped services")
@@ -87,11 +89,13 @@ def restore_config(db, archive: Archive):
     db.flush()
 
 
+# 使用独立备份密钥加密归档，并将格式标识作为认证附加数据。
 def encrypt(archive: Archive, key: bytes) -> bytes:
     nonce = os.urandom(12)
     return MAGIC + nonce + AESGCM(key).encrypt(nonce, archive.model_dump_json().encode(), MAGIC)
 
 
+# 验证备份格式和密文完整性，再按严格归档模型解析解密结果。
 def decrypt(data: bytes, key: bytes) -> Archive:
     if not data.startswith(MAGIC):
         raise ValueError("Invalid backup format")
@@ -100,6 +104,7 @@ def decrypt(data: bytes, key: bytes) -> Archive:
     return Archive.model_validate_json(plaintext)
 
 
+# 执行加密配置备份或恢复；备份采用一致性只读快照，恢复由事务整体提交。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["backup", "restore"])

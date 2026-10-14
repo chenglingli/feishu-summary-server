@@ -16,6 +16,8 @@ from app.runlog import event
 from app.security import digest
 
 
+# 持久化固定分段、摘要与幂等 UUID，再按序发送，已确认送达的分段直接跳过。
+# 未知结果最多重试四次且复用原内容和 UUID；首次尝试五十分钟后停止继续发送。
 async def deliver(run_id, recipient, parts):
     with SessionLocal() as db:
         run = db.scalar(select(Run).where(Run.id == run_id).with_for_update())
@@ -75,6 +77,7 @@ async def deliver(run_id, recipient, parts):
                 if part.first_attempt_at and now() >= part.first_attempt_at + timedelta(minutes=50):
                     raise PipelineError("DELIVERY_UNKNOWN", uncertain=True)
                 part.first_attempt_at = part.first_attempt_at or now()
+                # 外部请求前提交发送意图；进程中断时才能识别“可能送达”，而非当作未发送。
                 part.status = "sending"
                 run.execution_status, run.delivery_status = "sending", "sending"
                 key = part.uuid
@@ -99,6 +102,7 @@ async def deliver(run_id, recipient, parts):
                     raise
                 await asyncio.sleep([5, 20, 60][attempt] + random.random())
                 continue
+            # 收到确认后再次核验租约，再落库送达结果；旧执行者不能覆盖新任务状态。
             with SessionLocal() as db:
                 run = db.get(Run, run_id)
                 assert_owner(run)

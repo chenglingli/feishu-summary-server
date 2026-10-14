@@ -12,6 +12,7 @@ logger = logging.getLogger("summary.runner")
 logger.addHandler(logging.NullHandler())
 
 
+# 初始化仅输出 JSON 消息的日志处理器，重复调用不会重复添加输出。
 def configure():
     if not any(type(handler) is logging.StreamHandler for handler in logger.handlers):
         handler = logging.StreamHandler()
@@ -21,6 +22,7 @@ def configure():
     logger.propagate = False
 
 
+# 使用北京时间记录白名单元数据，并自动关联当前任务；丢弃未知字段及任意正文。
 def event(name, **fields):
     from app.leases import current_lease
 

@@ -10,6 +10,7 @@ from app.db import Run, SessionLocal, WorkerHealth, now
 from app.services import ACTIVE
 
 
+# 汇总 runner 心跳、排队、超时积压和送达未知数量，返回元数据健康状态。
 def snapshot(db):
     current = now()
     worker = db.get(WorkerHealth, "runner")
@@ -40,6 +41,7 @@ def snapshot(db):
     }
 
 
+# 输出健康快照和进程退出码；数据库异常不输出可能带连接凭证的异常原文。
 def main():
     try:
         with SessionLocal() as db:

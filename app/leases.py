@@ -14,6 +14,8 @@ from app.services import ACTIVE
 current_lease: ContextVar[tuple[str, str, int] | None] = ContextVar("current_lease", default=None)
 
 
+# 按用户、任务顺序加锁，领取排队任务并建立用户互斥租约；返回任务 ID、持有者和代次。
+# 首次启动设置三十分钟截止时间，重新领取不会延长总执行期限。
 def claim(run_id):
     with SessionLocal() as db:
         user_id = db.scalar(select(Run.user_id).where(Run.id == run_id))
@@ -41,6 +43,7 @@ def claim(run_id):
         return run.id, owner, run.fence
 
 
+# 同时校验任务、持有者、fence 代次和租约有效期，排除恢复前的旧执行者。
 def owns(run, lease):
     return bool(
         run
@@ -53,6 +56,7 @@ def owns(run, lease):
     )
 
 
+# 确认当前协程仍持有有效租约且未超时，否则禁止继续修改任务状态。
 def assert_owner(run):
     if not owns(run, current_lease.get()):
         raise PipelineError("LEASE_LOST")
@@ -60,6 +64,7 @@ def assert_owner(run):
         raise PipelineError("TASK_TIMEOUT")
 
 
+# 每二十秒尝试将任务与用户锁续租一百二十秒；失去所有权或任务终止后退出。
 async def heartbeat(lease, stop):
     while not stop.is_set():
         with SessionLocal() as db:
@@ -79,6 +84,7 @@ async def heartbeat(lease, stop):
             pass
 
 
+# 仅释放本执行者及代次对应的租约，避免误清除新执行者已经领取的锁。
 def release(lease):
     with SessionLocal() as db:
         run = db.get(Run, lease[0])
