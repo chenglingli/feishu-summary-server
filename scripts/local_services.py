@@ -111,20 +111,29 @@ def stop_one(name, data):
     return False
 
 
+def check_port(name, port):
+    import socket
+
+    with socket.socket() as probe:
+        # Match server restart semantics: TIME_WAIT is not a running service.
+        # listen() still rejects a live listener, including on systems allowing a reused bind.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+            probe.listen(1)
+        except OSError:
+            raise RuntimeError(
+                f"端口 {port} 暂不可用，请检查占用进程；脚本不会接管或杀死外部服务。"
+            ) from None
+
+
 def start(data):
     env, specs = commands()
-    import socket
 
     for name, port in (("api", 8000), ("web", 5173)):
         if alive(data.get(name)):
             continue
-        with socket.socket() as probe:
-            try:
-                probe.bind(("127.0.0.1", port))
-            except OSError:
-                raise RuntimeError(
-                    f"端口 {port} 已被占用，请先停止手动启动的 {name}；脚本不会接管或杀死它。"
-                ) from None
+        check_port(name, port)
     processes = subprocess.check_output(["ps", "-ax", "-o", "pid=,command="], text=True)
     for name, marker in (("runner", "-m app.runner"), ("ngrok", "ngrok http 5173")):
         if not alive(data.get(name)) and marker in processes:

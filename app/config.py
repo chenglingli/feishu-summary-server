@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     feishu_app_id: str = ""
     feishu_app_secret_file: str = ""
     token_encryption_key_file: str = ""
+    session_lifetime_days: int = Field(default=90, ge=1, le=365)
     model_base_url: str = ""
     model_id: str = ""
     model_token_budget: int = Field(default=200000, ge=10000, le=2000000)

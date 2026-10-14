@@ -150,6 +150,8 @@ async def execute(run_id, lease=None):
                         else ("complete" if messages else "no_data"),
                     )
                     report = await summarize(messages)
+                    if getattr(report, "incomplete", False):
+                        issues = [*issues, "SUMMARY_PARTIAL"]
                 coverage = "partial" if issues else ("complete" if messages else "no_data")
                 stage(
                     run_id,

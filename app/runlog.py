@@ -31,6 +31,16 @@ def event(name, **fields):
             if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value):
                 record[key] = value
         elif key in {
+            "reserved_tokens",
+            "budget_used",
+            "budget_limit",
+            "input_chars",
+            "output_chars",
+            "max_output_tokens",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "reasoning_tokens",
             "duration_ms",
             "attempt",
             "part",

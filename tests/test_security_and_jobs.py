@@ -206,15 +206,15 @@ def test_token_encryption_is_bound_to_user(tmp_path, monkeypatch):
         decrypt_tokens("b", sealed)
 
 
-def test_idle_expiry_and_allowlist_removal(clients, monkeypatch):
+def test_long_idle_session_and_allowlist_removal(clients, monkeypatch):
     from app.config import get_settings
 
     with SessionLocal() as db:
         identity = db.scalar(select(Identity).where(Identity.open_id == "demo-a"))
         session = db.scalar(select(Session).where(Session.identity_id == identity.id))
-        session.last_seen_at = now() - timedelta(minutes=31)
+        session.last_seen_at = now() - timedelta(days=30)
         db.commit()
-    assert clients["demo-a"].get("/api/session").status_code == 401
+    assert clients["demo-a"].get("/api/session").status_code == 200
     monkeypatch.setattr(get_settings(), "pilot_open_ids", "demo-a")
     assert clients["demo-b"].get("/api/session").status_code == 403
 
@@ -335,3 +335,31 @@ def test_denied_oauth_diagnostics_preserve_access_control(clients, monkeypatch):
         assert "fake-access" not in result.text and "fake-secret" not in result.text
     with SessionLocal() as db:
         assert db.scalar(select(Identity).where(Identity.open_id == "outside-user")) is None
+
+
+def test_absolute_session_expiry_still_requires_login(clients):
+    with SessionLocal() as db:
+        identity = db.scalar(select(Identity).where(Identity.open_id == "demo-a"))
+        session = db.scalar(select(Session).where(Session.identity_id == identity.id))
+        session.expires_at = now() - timedelta(seconds=1)
+        db.commit()
+    assert clients["demo-a"].get("/api/session").status_code == 401
+
+
+def test_persistent_cookie_matches_configured_database_expiry(clients, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "session_lifetime_days", 120)
+    before = now()
+    response = clients["demo-a"].get("/auth/dev/login/demo-a", follow_redirects=False)
+    assert "Max-Age=10368000" in response.headers["set-cookie"]
+    assert "HttpOnly" in response.headers["set-cookie"]
+    assert "SameSite=lax" in response.headers["set-cookie"]
+    with SessionLocal() as db:
+        identity = db.scalar(select(Identity).where(Identity.open_id == "demo-a"))
+        session = db.scalar(
+            select(Session)
+            .where(Session.identity_id == identity.id)
+            .order_by(Session.expires_at.desc())
+        )
+        assert before + timedelta(days=120) <= session.expires_at <= now() + timedelta(days=120)

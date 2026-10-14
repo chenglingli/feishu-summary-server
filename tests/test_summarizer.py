@@ -348,3 +348,429 @@ async def test_model_logs_attempts_without_message_or_response_content(monkeypat
         value not in caplog.text
         for value in ["private-chat-body", "private-invalid-output", "secret-do-not-log"]
     )
+
+
+@pytest.mark.parametrize("texts", [["甲乙", "丙丁"], ["甲乙丙丁"]])
+async def test_truncated_extraction_splits_without_losing_text(monkeypatch, texts):
+    from app import summarizer as module
+
+    calls = []
+    budget = object()
+
+    async def request(client, data, sources, primary, **kwargs):
+        assert kwargs["budget"] is budget and kwargs["split_on_truncation"]
+        calls.append(data)
+        if len(calls) == 1:
+            raise PipelineError("MODEL_OUTPUT_TRUNCATED")
+        return Summary(topics=[], decisions=[], actions=[])
+
+    monkeypatch.setattr(module, "request_summary", request)
+    monkeypatch.setattr(module, "retry", lambda code: None)
+    pieces = [{"source": f"S{i}", "text": text} for i, text in enumerate(texts)]
+    sources = {p["source"]: p for p in pieces}
+    results = await module.extract_batches(None, pieces, sources, set(sources), budget)
+    assert len(results) == 2
+    assert "".join(p["text"] for call in calls[1:] for p in call) == "".join(texts)
+    assert {p["source"] for call in calls[1:] for p in call} == set(sources)
+
+
+@pytest.mark.parametrize(
+    "code, expected_calls", [("MODEL_OUTPUT_TRUNCATED", 4), ("MODEL_AUTH_REJECTED", 1)]
+)
+async def test_extraction_split_is_bounded_and_does_not_hide_other_errors(
+    monkeypatch, code, expected_calls
+):
+    from app import summarizer as module
+
+    calls = []
+
+    async def request(*args, **kwargs):
+        calls.append(1)
+        raise PipelineError(code)
+
+    monkeypatch.setattr(module, "request_summary", request)
+    monkeypatch.setattr(module, "retry", lambda code: None)
+    piece = {"source": "S1", "text": "字" * 100}
+    with pytest.raises(PipelineError, match=code):
+        await module.extract_batches(None, [piece], {"S1": piece}, {"S1"}, object())
+    assert len(calls) == expected_calls
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "MODEL_OUTPUT_TRUNCATED",
+        "MODEL_MERGE_INCOMPLETE",
+        "MODEL_SOURCE_INVALID",
+        "MODEL_JSON_SCHEMA_INVALID",
+        "MODEL_RESPONSE_SCHEMA_CHANGED",
+        "MODEL_EMPTY_OUTPUT",
+        "MODEL_OUTPUT_INVALID",
+        "MODEL_TIMEOUT",
+        "MODEL_NETWORK_ERROR",
+        "MODEL_SERVICE_UNAVAILABLE",
+        "MODEL_RATE_LIMITED",
+        "MODEL_TOKEN_BUDGET_EXCEEDED",
+    ],
+)
+async def test_failed_merge_keeps_all_validated_findings(monkeypatch, code):
+    from app import summarizer as module
+
+    async def request(*args, **kwargs):
+        assert kwargs["split_on_truncation"]
+        raise PipelineError(code)
+
+    monkeypatch.setattr(module, "request_summary", request)
+    inputs = [
+        Summary(topics=[Finding(summary=f"要点{i}", sources=[f"S{i}"])], decisions=[], actions=[])
+        for i in range(2)
+    ]
+    results = await module.merge_batch(None, [s.model_dump() for s in inputs], {}, set(), object())
+    assert results == inputs
+
+
+def test_budget_settles_actual_usage_and_keeps_reasoning_in_total():
+    from app.summarizer import ModelBudget
+
+    budget = ModelBudget(10000)
+    payload = {"messages": [{"content": "测试"}], "max_tokens": 6000}
+    reserved = budget.reserve(payload)
+    counts = budget.settle(
+        reserved,
+        {
+            "prompt_tokens": 100,
+            "completion_tokens": 200,
+            "total_tokens": 300,
+            "completion_tokens_details": {"reasoning_tokens": 150},
+        },
+    )
+    assert budget.used == 300
+    assert counts["reasoning_tokens"] == 150
+    budget.reserve(payload)  # Reclaimed unused output reservation makes the next call fit.
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        [],
+        {},
+        {"total_tokens": 1},
+        {"prompt_tokens": -1, "completion_tokens": 2, "total_tokens": 1},
+        {"prompt_tokens": True, "completion_tokens": 2, "total_tokens": 3},
+        {"prompt_tokens": "1", "completion_tokens": 2, "total_tokens": 3},
+        {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 4},
+        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    ],
+)
+def test_unreliable_usage_keeps_conservative_reservation(usage):
+    from app.summarizer import ModelBudget
+
+    budget = ModelBudget(10000)
+    reserved = budget.reserve({"messages": [], "max_tokens": 6000})
+    assert budget.settle(reserved, usage) == {}
+    assert budget.used == reserved
+
+
+async def test_truncation_is_charged_actual_usage_and_logs_only_metadata(monkeypatch, caplog):
+    import httpx
+
+    from app.summarizer import ModelBudget
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "secret-key")
+    caplog.set_level("INFO", logger="summary.runner")
+    response = {
+        "choices": [
+            {
+                "finish_reason": "length",
+                "message": {"content": "private-output", "reasoning_content": "private-reasoning"},
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 200,
+            "total_tokens": 300,
+            "completion_tokens_details": {"reasoning_tokens": 150},
+        },
+    }
+    budget = ModelBudget(50000)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response))
+    ) as client:
+        with pytest.raises(PipelineError, match="MODEL_OUTPUT_TRUNCATED"):
+            await request_summary(
+                client,
+                [{"text": "private-input"}],
+                {},
+                set(),
+                budget=budget,
+                split_on_truncation=True,
+            )
+    assert budget.used == 300
+    rows = [json.loads(r.message) for r in caplog.records if r.name == "summary.runner"]
+    usage = next(r for r in rows if r["event"] == "model_usage")
+    assert usage["total_tokens"] == 300 and usage["reasoning_tokens"] == 150
+    assert next(r for r in rows if r["event"] == "model_output")["code"] == "length"
+    assert not any(
+        s in caplog.text
+        for s in ["private-input", "private-output", "private-reasoning", "secret-key"]
+    )
+
+
+async def test_actual_usage_over_budget_stops_even_if_response_is_valid(monkeypatch):
+    import httpx
+
+    from app.summarizer import ModelBudget
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake")
+    budget = ModelBudget(20000)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={
+                    "usage": {
+                        "prompt_tokens": 20000,
+                        "completion_tokens": 1000,
+                        "total_tokens": 21000,
+                    },
+                    "choices": [
+                        {"message": {"content": '{"topics":[],"decisions":[],"actions":[]}'}}
+                    ],
+                },
+            )
+        )
+    ) as client:
+        with pytest.raises(PipelineError, match="MODEL_TOKEN_BUDGET_EXCEEDED"):
+            await request_summary(client, [], {}, set(), budget=budget)
+    assert budget.used == 21000
+
+
+@pytest.mark.parametrize(
+    "model", ["openai/qwen3.8-flash", "qwen3.8-flash", "openai/deepseek-v4-flash"]
+)
+@pytest.mark.parametrize("merge", [False, True])
+async def test_qwen_disables_thinking_for_extraction_merge_and_retry(monkeypatch, model, merge):
+    import httpx
+
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "model_id", model)
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake")
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        content = (
+            "invalid-json" if len(requests) == 1 else '{"topics":[],"decisions":[],"actions":[]}'
+        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await request_summary(client, [], {}, set(), merge=merge)
+    assert len(requests) == 2
+    for payload in requests:
+        assert payload["model"] == model
+        if "qwen" in model:
+            assert payload["enable_thinking"] is False
+        else:
+            assert "enable_thinking" not in payload
+
+
+@pytest.mark.parametrize(
+    "bad_sources, reason",
+    [([], "missing_sources"), (["S99"], "unknown_sources"), (["S2"], "context_only_sources")],
+)
+async def test_source_repair_has_specific_reason_and_allowed_ids(
+    monkeypatch, caplog, bad_sources, reason
+):
+    import httpx
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake")
+    caplog.set_level("INFO", logger="summary.runner")
+    payloads = []
+
+    def respond(request):
+        payloads.append(json.loads(request.content))
+        result = Summary(
+            topics=[
+                Finding(summary="测试结论", sources=bad_sources if len(payloads) == 1 else ["S1"])
+            ],
+            decisions=[],
+            actions=[],
+        )
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": result.model_dump_json()}}]}
+        )
+
+    sources = {"S1": {"text": "测试结论"}, "S2": {"text": "背景", "context_only": True}}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await request_summary(client, [], sources, {"S1", "S_OTHER_BATCH"})
+    assert result.topics[0].sources == ["S1"]
+    repair = payloads[1]["messages"][-1]["content"]
+    assert reason in repair and '"S1"' in repair and '"S2"' in repair
+    assert "S_OTHER_BATCH" not in repair
+    assert any(
+        json.loads(r.message).get("code") == reason
+        for r in caplog.records
+        if r.name == "summary.runner"
+    )
+
+
+async def test_context_only_batch_never_calls_model(monkeypatch):
+    from app import summarizer as module
+
+    async def request(*args, **kwargs):
+        pytest.fail("Background-only batches must not call the model")
+
+    monkeypatch.setattr(module, "request_summary", request)
+    item = {"source": "S2", "text": "只有背景", "context_only": True}
+    assert await module.extract_batches(None, [item], {"S2": item}, {"S1"}, object()) == []
+
+
+async def test_merge_rejects_source_outside_its_input_summaries(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake")
+    original = Summary(
+        topics=[Finding(summary="本批结论", sources=["S1"])], decisions=[], actions=[]
+    )
+    bad = Summary(topics=[Finding(summary="别批结论", sources=["S2"])], decisions=[], actions=[])
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, json={"choices": [{"message": {"content": bad.model_dump_json()}}]}
+            )
+        )
+    ) as client:
+        with pytest.raises(PipelineError, match="MODEL_SOURCE_INVALID"):
+            await request_summary(
+                client,
+                [original.model_dump()],
+                {"S1": {"text": "本批结论"}, "S2": {"text": "别批结论"}},
+                {"S1", "S2"},
+                merge=True,
+            )
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "CANCELLED",
+        "LEASE_LOST",
+        "MODEL_AUTH_REJECTED",
+        "MODEL_CONTENT_FILTERED",
+        "MODEL_REQUEST_REJECTED",
+        "UNEXPECTED_ERROR",
+    ],
+)
+async def test_merge_fallback_does_not_hide_control_or_policy_errors(monkeypatch, code):
+    from app import summarizer as module
+
+    async def request(*args, **kwargs):
+        raise PipelineError(code)
+
+    monkeypatch.setattr(module, "request_summary", request)
+    batch = [Summary(topics=[], decisions=[], actions=[]).model_dump()] * 2
+    with pytest.raises(PipelineError, match=code):
+        await module.merge_batch(None, batch, {}, set(), object())
+
+
+async def test_incomplete_merge_retries_then_renders_original_decisions(monkeypatch):
+    import httpx
+
+    from app.summarizer import ModelBudget, merge_batch, render_summary
+
+    monkeypatch.setattr(Settings, "secret", lambda self, field: "fake")
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": '{"topics":[],"decisions":[],"actions":[]}'}}]
+            },
+        )
+
+    summaries = [
+        Summary(
+            topics=[], decisions=[Finding(summary=f"保留决定{i}", sources=[f"S{i}"])], actions=[]
+        )
+        for i in (1, 2)
+    ]
+    sources = {f"S{i}": {"text": f"保留决定{i}"} for i in (1, 2)}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await merge_batch(
+            client, [s.model_dump() for s in summaries], sources, set(sources), ModelBudget(200000)
+        )
+    assert len(requests) == 2
+    assert '"decisions": ["S1", "S2"]' in requests[1]["messages"][-1]["content"]
+    assert result == summaries
+    report = render_summary(result)
+    assert "保留决定1" in report and "保留决定2" in report
+
+
+@pytest.mark.parametrize(
+    "error, expected_calls", [("MODEL_SOURCE_INVALID", 3), ("MODEL_TOKEN_BUDGET_EXCEEDED", 2)]
+)
+async def test_partial_report_retains_successful_batches(monkeypatch, error, expected_calls):
+    from app import summarizer as module
+
+    calls = []
+    monkeypatch.setattr(module, "batches", lambda values: ([v] for v in values))
+
+    async def request(client, data, sources, primary, **kwargs):
+        calls.append(data)
+        if len(calls) == 2:
+            raise PipelineError(error)
+        return Summary(
+            topics=[Finding(summary=data[0]["text"], sources=[data[0]["source"]])],
+            decisions=[],
+            actions=[],
+        )
+
+    monkeypatch.setattr(module, "request_summary", request)
+    report = await module.summarize_messages(
+        [{"text": text} for text in ["成功甲", "失败乙", "成功丙"]]
+    )
+    assert report.incomplete and "部分总结" in report and "成功甲" in report
+    assert "失败乙" not in report
+    assert ("成功丙" in report) == (expected_calls == 3)
+    assert len(calls) == expected_calls
+
+
+async def test_no_valid_result_reports_failure_not_no_activity(monkeypatch):
+    from app import summarizer as module
+
+    async def request(*args, **kwargs):
+        raise PipelineError("MODEL_SERVICE_UNAVAILABLE")
+
+    monkeypatch.setattr(module, "request_summary", request)
+    report = await module.summarize_messages([{"text": "有待办"}])
+    assert report.incomplete
+    assert "未能生成" in report and "这不代表没有事项" in report
+
+
+async def test_split_keeps_validated_child_when_sibling_fails(monkeypatch):
+    from app import summarizer as module
+
+    calls = []
+
+    async def request(client, data, sources, primary, **kwargs):
+        calls.append(data)
+        if len(calls) == 1:
+            raise PipelineError("MODEL_OUTPUT_TRUNCATED")
+        if len(calls) == 3:
+            raise PipelineError("MODEL_SOURCE_INVALID")
+        return Summary(topics=[Finding(summary="保留", sources=["S1"])], decisions=[], actions=[])
+
+    monkeypatch.setattr(module, "request_summary", request)
+    monkeypatch.setattr(module, "retry", lambda code: None)
+    data = [{"source": "S1", "text": "甲"}, {"source": "S2", "text": "乙"}]
+    collected = []
+    with pytest.raises(PipelineError, match="MODEL_SOURCE_INVALID"):
+        await module.extract_batches(
+            None, data, {v["source"]: v for v in data}, {"S1", "S2"}, object(), collected=collected
+        )
+    assert len(collected) == 1 and collected[0].topics[0].summary == "保留"

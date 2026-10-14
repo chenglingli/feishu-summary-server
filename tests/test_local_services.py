@@ -53,3 +53,29 @@ def test_external_runner_blocks_start(monkeypatch):
     with pytest.raises(RuntimeError, match="脚本以外的 runner"):
         services.start({})
     popen.assert_not_called()
+
+
+def test_port_check_rejects_live_listener():
+    import socket
+
+    with socket.socket() as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        with pytest.raises(RuntimeError, match="暂不可用"):
+            services.check_port("web", server.getsockname()[1])
+
+
+def test_port_check_accepts_recently_closed_connection():
+    import socket
+
+    with socket.socket() as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        port = server.getsockname()[1]
+        server.listen(1)
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+            connection, _ = server.accept()
+            connection.close()  # Server closes first, leaving the accepted connection in TIME_WAIT.
+            assert client.recv(1) == b""
+    services.check_port("web", port)

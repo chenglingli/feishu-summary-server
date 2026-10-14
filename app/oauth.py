@@ -24,23 +24,24 @@ SCOPES = {
 def new_session(db, identity, response, old_hash=None):
     if old_hash:
         db.execute(delete(Session).where(Session.id_hash == old_hash))
+    cfg = get_settings()
+    lifetime = timedelta(days=cfg.session_lifetime_days)
     raw = random_token()
     db.add(
         Session(
             id_hash=digest(raw),
             identity_id=identity.id,
             csrf_token=random_token(),
-            expires_at=now() + timedelta(hours=8),
+            expires_at=now() + lifetime,
         )
     )
-    cfg = get_settings()
     response.set_cookie(
         cfg.cookie_name,
         raw,
         secure=cfg.public_base_url.startswith("https://"),
         httponly=True,
         samesite="lax",
-        max_age=28800,
+        max_age=int(lifetime.total_seconds()),
         path="/",
     )
 

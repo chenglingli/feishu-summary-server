@@ -2,7 +2,6 @@ import base64
 import hashlib
 import json
 import secrets
-from datetime import timedelta
 from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -48,11 +47,9 @@ def decrypt_tokens(user_id: str, ciphertext: str) -> dict:
 def authenticated(request: Request, db: DBSession = Depends(get_db)):
     cfg = get_settings()
     session = db.get(Session, digest(request.cookies.get(cfg.cookie_name, "")))
-    if (
-        not session
-        or session.expires_at <= now()
-        or session.last_seen_at <= now() - timedelta(minutes=30)
-    ):
+    # Persistent login expires at a fixed deadline rather than after inactivity.
+    # Server-side logout and current access restrictions are still checked on every request.
+    if not session or session.expires_at <= now():
         raise Problem(401, "UNAUTHENTICATED", "请重新登录")
     identity = db.get(Identity, session.identity_id)
     if (

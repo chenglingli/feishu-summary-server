@@ -100,3 +100,25 @@ PID 文件及日志位于后端 `.local-services/`（已忽略，不提交），
 包括 `runner_starting/runner_ready`（启动）、`runner_status`（每5分钟运行状态）、`task_claimed/task_stage/task_finished`（任务及阶段）、`collection_progress`（采集数量，通常最多每5秒一条，阶段结束强制更新）、`model_call_started/model_response/model_call_succeeded/model_call_failed`（每次模型调用）、`task_retry`（重试）、`delivery_started/delivery_succeeded/delivery_failed`（发送分段）及正常退出记录。`run_id` 关联任务，`call_id` 区分模型调用，成功HTTP响应不等于输出校验通过。可按任务编号筛选，例如 `rg '任务UUID' .local-services/runner.log`。
 
 日志只含允许的运行元数据，不记录聊天、总结、模型请求/响应正文、凭证、收件人或任意异常文本。不可从日志恢复历史正文；这次改动不补写过去任务。日志仍是追加文件，尚未配置自动轮转，长期运行需要定期管理大小。更新代码后需要重启 runner 才生效。
+
+### 模型预算与截断诊断
+
+模型请求先按输入 UTF-8 字节、输出上限和固定开销保守预留预算。响应中 `usage` 的 prompt/completion/total 为非负整数、总量大于零且相加一致时，用实际 token 总量替换该次预留；截断响应同样结算。缺失或异常 usage、网络失败保留原估算。推理 token 是 completion 的子集，不重复累计。实际用量超限时停止后续处理，不自动提高 `MODEL_TOKEN_BUDGET`。
+
+日志新增 `model_usage`（actual/estimated、输入/输出/总 token、可用的推理 token、累计预算）及 `model_output`（结束原因和输出字符数）；请求开始记录输入字符数、输出上限和预留额度。不记录模型或推理正文。预算仍会在发送前保守检查，不能保证等同供应商账单。重启 runner 后生效。
+
+### 网页长期登录
+
+所有用户网页登录默认保持 90 天，取消闲置 30 分钟失效。`SESSION_LIFETIME_DAYS` 可配置为 1～365 天；数据库会话与浏览器 Cookie 使用相同有效期，从登录时计算，不因轮询无限延长。退出登录立即删除服务端会话，访问名单和账号状态仍逐次校验。此配置不改变飞书消息授权凭证的刷新与失效规则。
+
+重启 API 后新登录生效；已有会话不追溯延长，请重新登录一次。清除 Cookie、切换域名或浏览器仍需要登录。
+
+### Qwen 总结模型
+
+当前网关可使用 `MODEL_ID=openai/qwen3.8-flash`，`MODEL_BASE_URL` 保持网关的 `/v1` 基础地址。代码对 `openai/qwen3.8-flash` 与 `qwen3.8-flash` 的提取、合并和重试请求显式发送 `enable_thinking: false`；其他模型不附带这个参数。更换配置后需重启 runner。现有分批、输出校验和任务预算继续生效。
+
+### 合并失败时的报告恢复
+
+分批提取必须通过结构与来源校验。之后的模型合并仅用于整理展示：若合并重试仍出现完整性、来源、格式、截断错误，或遇到临时服务/网络故障及预算不足，则舍弃该合并输出，保留对应批次已经验证的全部提取结果，再由本地代码分类去重。报告可能更长，语义相似内容可能重复，但不以未经校验的合并结果覆盖原始提取。日志记录 `model_merge_fallback` 及原因。鉴权、请求参数、内容策略与取消等错误仍向上传播；提取阶段预算不足不会被包装成完整成功。
+
+总结采用尽力交付：提取批次发生可恢复模型错误时保留已验证结果并继续后续批次；预算不足则停止模型调用并发送已有结果。报告显式标记“部分总结”，任务覆盖说明添加 `SUMMARY_PARTIAL`。没有任何有效结果时发送未完成说明，不声称没有事项。撤销、鉴权和策略错误以及任务总时限仍按原规则处理。
