@@ -3,7 +3,10 @@
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+LOG_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 logger = logging.getLogger("summary.runner")
 logger.addHandler(logging.NullHandler())
@@ -21,7 +24,7 @@ def configure():
 def event(name, **fields):
     from app.leases import current_lease
 
-    record = {"time": datetime.now(timezone.utc).isoformat(), "event": name}
+    record = {"time": datetime.now(LOG_TIMEZONE).isoformat(), "event": name}
     lease = current_lease.get()
     if lease:
         fields.setdefault("run_id", lease[0])

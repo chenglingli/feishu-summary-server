@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from app import runlog
 from app.leases import current_lease
@@ -41,10 +42,15 @@ def test_configuration_is_idempotent_and_flushes(monkeypatch):
     monkeypatch.setattr("sys.stderr", stream)
     runlog.configure()
     runlog.configure()
+    before = datetime.now(timezone.utc)
     runlog.event("runner_ready")
     assert len(logger.handlers) == 1
     assert stream.flushed > 0
-    assert json.loads(stream.getvalue())["event"] == "runner_ready"
+    record = json.loads(stream.getvalue())
+    assert record["event"] == "runner_ready"
+    logged_at = datetime.fromisoformat(record["time"])
+    assert logged_at.utcoffset() == timedelta(hours=8)
+    assert before <= logged_at <= datetime.now(timezone.utc)
 
 
 async def test_demo_task_logs_claim_stages_and_completion(clients, caplog):
